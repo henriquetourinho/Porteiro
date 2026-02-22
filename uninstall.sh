@@ -29,6 +29,13 @@ fi
 
 echo ""
 
+# --- Carrega configuração para ler as rotas ---
+CONFIG_FILE="/opt/porteiro/porteiro.conf"
+ROTAS="/phpmyadmin/"
+if [ -f "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE" 2>/dev/null
+fi
+
 # --- 1. Fechar o acesso antes de remover ---
 echo "🔒 Fechando acesso e limpando IPs do Nginx..."
 NGINX_CONF="/etc/nginx/pma_ips.conf"
@@ -87,26 +94,72 @@ if [ -f "$LOG_FILE" ]; then
     fi
 fi
 
-# --- 7. Lembrete sobre o bloco do Nginx ---
+# --- 7. Wizard de limpeza do Nginx ---
 echo ""
 echo "=============================="
 echo "✅ Porteiro desinstalado com sucesso!"
 echo ""
-echo "⚠️  ATENÇÃO: Um passo manual ainda é necessário."
-echo "   Remova o bloco do Porteiro da sua configuração do Nginx:"
-echo "   Arquivo: /etc/nginx/sites-available/default (ou equivalente)"
+echo "🧹 Limpeza do Nginx"
+echo "-------------------------------"
+echo "   As seguintes rotas estavam protegidas pelo Porteiro:"
 echo ""
-echo "   Procure e remova o bloco:"
+
+NGINX_FILE="/etc/nginx/sites-available/default"
+ROTAS_ARRAY=($ROTAS)
+
+for ROTA in "${ROTAS_ARRAY[@]}"; do
+    echo "   → $ROTA"
+done
+
 echo ""
-echo "   # PORTEIRO — Proteção do phpMyAdmin"
-echo "   location ^~ /phpmyadmin/ {"
-echo "       include /etc/nginx/pma_ips.conf;"
-echo "       deny all;"
-echo "       ..."
-echo "   }"
-echo ""
-echo "   Após remover, recarregue o Nginx:"
-echo "   sudo nginx -t && sudo systemctl reload nginx"
+read -p "   Deseja abrir o arquivo do Nginx agora para remover os blocos? (s/N): " ABRIR_NGINX
+
+if [[ "$ABRIR_NGINX" == "s" || "$ABRIR_NGINX" == "S" ]]; then
+    echo ""
+    echo "   Para cada rota acima, remova o bloco correspondente:"
+    echo ""
+    for ROTA in "${ROTAS_ARRAY[@]}"; do
+        echo "   location ^~ $ROTA {"
+        echo "       include /etc/nginx/pma_ips.conf;  ← remova"
+        echo "       deny all;                          ← remova"
+        echo "       ..."
+        echo "   }"
+        echo ""
+    done
+
+    read -p "   Informe o caminho do arquivo Nginx [$NGINX_FILE]: " NGINX_INPUT
+    NGINX_FILE="${NGINX_INPUT:-$NGINX_FILE}"
+
+    if [ -f "$NGINX_FILE" ]; then
+        nano "$NGINX_FILE"
+        echo ""
+        echo "   Validando e recarregando o Nginx..."
+        if nginx -t 2>/dev/null; then
+            systemctl reload nginx
+            echo "   ✅ Nginx recarregado com sucesso."
+        else
+            echo "   ❌ Erro na configuração do Nginx. Verifique o arquivo manualmente."
+        fi
+    else
+        echo "   ⚠️  Arquivo não encontrado: $NGINX_FILE"
+        echo "   Edite manualmente e rode: sudo nginx -t && sudo systemctl reload nginx"
+    fi
+else
+    echo ""
+    echo "   Lembre-se de remover os blocos manualmente:"
+    echo "   sudo nano $NGINX_FILE"
+    echo ""
+    for ROTA in "${ROTAS_ARRAY[@]}"; do
+        echo "   location ^~ $ROTA {"
+        echo "       include /etc/nginx/pma_ips.conf;  ← remova"
+        echo "       deny all;                          ← remova"
+        echo "   }"
+        echo ""
+    done
+    echo "   Após editar, rode:"
+    echo "   sudo nginx -t && sudo systemctl reload nginx"
+fi
+
 echo ""
 echo "   Até a próxima. 🚪"
 echo ""

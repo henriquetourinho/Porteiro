@@ -18,10 +18,10 @@ Enquanto você dorme, bots do mundo todo ficam batendo na porta do seu `/phpmyad
 
 A lógica é simples:
 - 🌍 **Pra internet:** erro 403. Nem existe.
-- 🔑 **Pra você (via SSH):** `pma-on`. Acesso liberado na hora.
+- 🔑 **Pra você (via SSH):** `sudo pma-on`. Acesso liberado na hora em todas as rotas.
 - ⏱️ **Depois do tempo configurado:** `pma-off`. A porta tranca sozinha, mesmo que você esqueça.
 
-**Zero dependência externa. Zero banco de dados. Zero token. O SSH já é sua identidade.**
+**Zero dependência externa. Zero banco de dados. Zero token obrigatório. O SSH já é sua identidade.**
 
 **Desenvolvido por:** Carlos Henrique Tourinho Santana
 
@@ -30,15 +30,15 @@ A lógica é simples:
 ## ✨ Funcionalidades
 
 - **🔍 Detecção Automática de IP:** Lê seu IP direto da sessão SSH via `$SSH_CLIENT`. Sem digitar nada.
-- **🌍 Isolamento Total:** Bloqueia a rota com `deny all` para o resto da internet. O `/phpmyadmin/` simplesmente não existe.
-- **⚡ Liberação Instantânea:** Um comando (`pma-on`) e seu navegador já acessa. Nginx recarrega na hora.
-- **⏱️ Tempo Configurável:** `pma-on 30m`, `pma-on 2h` — você define quanto tempo quer de acesso por sessão.
+- **🌍 Isolamento Total:** Bloqueia as rotas com `deny all` para o resto da internet. O `/phpmyadmin/` simplesmente não existe.
+- **⚡ Liberação Instantânea:** Um comando (`sudo pma-on`) e seu navegador já acessa. Nginx recarrega na hora.
+- **⏱️ Tempo Configurável:** `sudo pma-on 30m`, `sudo pma-on 2h` — você define quanto tempo quer de acesso por sessão.
 - **⏱️ Auto-Off Inteligente:** Fecha automaticamente quando o tempo acabar. Anti-esquecimento nativo.
-- **🔒 Fechamento Manual:** Terminou antes? `pma-off` tranca na hora, sem esperar o timer.
-- **📊 Status em Tempo Real:** `pma-status` mostra se a porta está aberta, qual IP está ativo, quando o Auto-Off vai disparar e o log recente.
-- **📋 Log de Auditoria:** Cada abertura e fechamento é registrado em `/var/log/porteiro.log` com timestamp, IP e hostname.
-- **📣 Notificação via Telegram:** Receba uma mensagem no celular sempre que a porta abrir ou fechar. Totalmente opcional.
-- **🛣️ Multi-rota:** Proteja `/phpmyadmin/`, `/adminer/`, `/wp-admin/` ou qualquer rota sensível — configure em `porteiro.conf`.
+- **🔒 Fechamento Manual:** Terminou antes? `sudo pma-off` tranca na hora, sem esperar o timer.
+- **📊 Status em Tempo Real:** `sudo pma-status` mostra se a porta está aberta, qual IP está ativo, quais rotas estão protegidas e o log recente — e notifica via Telegram se configurado.
+- **📋 Log de Auditoria:** Cada abertura e fechamento é registrado em `/var/log/porteiro.log` com timestamp, IP, rotas e hostname.
+- **📣 Notificação via Telegram:** Receba uma mensagem no celular sempre que a porta abrir, fechar ou o status for consultado. Totalmente opcional — configurado com wizard durante a instalação.
+- **🛣️ Multi-rota:** Proteja `/phpmyadmin/`, `/adminer/`, `/wp-admin/` ou qualquer rota sensível. Um `pma-on` libera tudo, um `pma-off` bloqueia tudo. Rotas escolhidas interativamente durante a instalação.
 - **🪶 Levíssimo:** Shell Script puro. Zero dependências externas. Funciona até em VPS de R$15/mês.
 
 ---
@@ -72,54 +72,99 @@ cd porteiro
 sudo bash install.sh
 ```
 
-O instalador cuida de tudo automaticamente:
-- Instala o `at` (se não estiver presente)
-- Cria o diretório `/opt/porteiro/` com os scripts
-- Cria o arquivo de configuração `/opt/porteiro/porteiro.conf`
-- Cria o arquivo `/etc/nginx/pma_ips.conf`
-- Cria o log em `/var/log/porteiro.log`
-- Aplica permissões corretas (`755`, `root:root`)
-- Registra os comandos globais `pma-on`, `pma-off` e `pma-status`
-- **Pergunta interativamente** se deseja configurar o Telegram (valida o token na hora)
+O instalador guia você por dois wizards interativos antes de criar qualquer arquivo:
+
+**Wizard 1 — Rotas protegidas:**
+```
+🛣️  Rotas Protegidas (Multi-rota)
+==============================
+   ✅ /phpmyadmin/ — adicionada por padrão.
+
+   Deseja proteger mais rotas? Selecione pelos números
+   separados por espaço (ex: 1 3) ou pressione Enter para pular.
+
+   [1] /adminer/
+   [2] /wp-admin/
+   [3] /wp-login.php
+   [4] /panel/
+   [5] Digitar manualmente
+
+   Opções (ex: 1 2): 1 2
+   ✅ '/adminer/' adicionada.
+   ✅ '/wp-admin/' adicionada.
+
+   Rotas que serão protegidas:
+   → /phpmyadmin/
+   → /adminer/
+   → /wp-admin/
+```
+
+**Wizard 2 — Telegram (opcional):**
+```
+📣 Notificações via Telegram (opcional)
+==============================
+   Deseja configurar o Telegram agora? (s/N): s
+   Token do bot: SEU_TOKEN
+   Chat ID:      SEU_CHAT_ID
+   ✅ Bot validado! Notificações ativadas.
+```
+
+Após os wizards, o instalador também cuida de:
+- Instalar o `at` (se não estiver presente)
+- Criar o diretório `/opt/porteiro/` com os scripts
+- Criar o arquivo de configuração `/opt/porteiro/porteiro.conf` com as rotas escolhidas
+- Criar o arquivo `/etc/nginx/pma_ips.conf`
+- Criar o log em `/var/log/porteiro.log`
+- Aplicar permissões corretas (`755`, `root:root`)
+- Registrar os comandos globais `pma-on`, `pma-off` e `pma-status`
+- Gerar os **blocos Nginx prontos** para cada rota escolhida
 
 ### 3. Configurar o Nginx (único passo manual)
 
-Abra a configuração do seu Nginx (ex: `/etc/nginx/sites-available/default`) e adicione o bloco abaixo antes das configurações gerais do PHP:
+Ao final da instalação, o script exibe os blocos Nginx prontos para copiar — um para cada rota escolhida no wizard. Exemplo para `/phpmyadmin/` e `/adminer/`:
 
 ```nginx
-# ======================================================================
-# PORTEIRO — Proteção do phpMyAdmin (Liberação Dinâmica por IP)
-# ======================================================================
+# --- PHPMYADMIN ---
 location ^~ /phpmyadmin/ {
     include /etc/nginx/pma_ips.conf;
     deny all;
 
     location ~ \.php$ {
         include snippets/fastcgi-php.conf;
-        fastcgi_pass unix:/run/php/php-fpm.sock; # Ajuste para sua versão do PHP
+        fastcgi_pass unix:/run/php/php-fpm.sock;
+    }
+}
+
+# --- ADMINER ---
+location ^~ /adminer/ {
+    include /etc/nginx/pma_ips.conf;
+    deny all;
+
+    location ~ \.php$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/run/php/php-fpm.sock;
     }
 }
 ```
 
-Valide e recarregue o Nginx:
+> 💡 **Multi-rota:** todas as rotas compartilham o mesmo `/etc/nginx/pma_ips.conf`. Um `pma-on` libera tudo. Um `pma-off` bloqueia tudo.
+
+Abra o arquivo do Nginx, cole os blocos e recarregue:
 
 ```bash
+sudo nano /etc/nginx/sites-available/default
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
-A partir daqui, `/phpmyadmin/` retorna **403 Forbidden** para o mundo inteiro. O Porteiro assumiu o plantão.
+A partir daqui, as rotas retornam **403 Forbidden** para o mundo inteiro. O Porteiro assumiu o plantão.
 
-### 4. (Opcional) Configurar Telegram
+### 4. (Opcional) Reconfigurar Telegram depois
 
-O instalador já pergunta se você quer configurar o Telegram durante a instalação e valida o token automaticamente.
-
-Se quiser ativar depois, edite o arquivo de configuração:
+Se pulou o Telegram durante a instalação, edite o `porteiro.conf`:
 
 ```bash
 sudo nano /opt/porteiro/porteiro.conf
 ```
-
-Preencha as duas variáveis:
 
 ```bash
 TELEGRAM_TOKEN="seu_token_aqui"
@@ -127,16 +172,28 @@ TELEGRAM_CHAT_ID="seu_chat_id_aqui"
 ```
 
 **Como obter:**
-- **TOKEN** → Abra o Telegram, fale com `@BotFather` e crie um novo bot. Ele te entrega o token.
-- **CHAT_ID** → Fale com `@userinfobot` no Telegram. Ele responde com seu ID numérico.
+- **TOKEN** → Fale com `@BotFather` no Telegram e crie um bot.
+- **CHAT_ID** → Fale com `@userinfobot` no Telegram.
 
 **Testar manualmente:**
 ```bash
 curl "https://api.telegram.org/botSEU_TOKEN/getMe"
 ```
-Se retornar `"ok":true`, o token é válido.
 
-A partir do próximo `pma-on`, `pma-off` ou `pma-status`, você receberá notificações no celular.
+---
+
+## 🗑️ Como Desinstalar
+
+```bash
+sudo bash uninstall.sh
+```
+
+O desinstalador também é interativo:
+- Fecha o acesso e limpa o Nginx antes de remover qualquer coisa
+- Cancela agendamentos do Auto-Off
+- Remove scripts, links simbólicos e arquivos de configuração
+- Pergunta se deseja remover o log de auditoria
+- Lista as rotas que estavam protegidas e oferece abrir o Nginx para remover os blocos manualmente
 
 ---
 
@@ -144,16 +201,16 @@ A partir do próximo `pma-on`, `pma-off` ou `pma-status`, você receberá notifi
 
 ```
 porteiro/
-├── install.sh        # Instalador automático (rode isso e acabou)
-├── uninstall.sh      # Desinstalador (remove tudo limpo)
+├── install.sh        # Instalador automático com wizards interativos
+├── uninstall.sh      # Desinstalador interativo (remove tudo limpo)
 ├── README.md         # Este arquivo
 └── LICENSE           # MIT
 
 # Após instalar, os scripts ficam em:
 /opt/porteiro/
-├── pma-on            # Abre a porta para o seu IP
-├── pma-off           # Fecha a porta para todo mundo
-├── pma-status        # Mostra o estado atual
+├── pma-on            # Libera seu IP em todas as rotas protegidas
+├── pma-off           # Bloqueia todas as rotas para todo mundo
+├── pma-status        # Mostra estado, rotas ativas e log recente
 └── porteiro.conf     # Configurações (tempo, rotas, Telegram)
 
 # Comandos globais registrados em:
@@ -162,7 +219,7 @@ porteiro/
 /usr/local/bin/pma-status
 
 # Arquivos gerados no servidor:
-/etc/nginx/pma_ips.conf   # IP injetado dinamicamente
+/etc/nginx/pma_ips.conf   # IP injetado dinamicamente (compartilhado por todas as rotas)
 /var/log/porteiro.log     # Log de auditoria
 ```
 
@@ -186,6 +243,7 @@ Saída esperada:
    IP autorizado : 189.x.x.x
    Duração       : 2 hora(s)
    Auto-Off em   : 120 minuto(s)
+   Rotas ativas  : /phpmyadmin/ /adminer/
 ```
 
 ### Fechar o acesso manualmente
@@ -197,7 +255,7 @@ sudo pma-off
 Saída esperada:
 ```
 🔒 Acesso bloqueado!
-   O phpMyAdmin está isolado da internet.
+   Rotas isoladas: /phpmyadmin/ /adminer/
 ```
 
 ### Verificar o status
@@ -212,12 +270,13 @@ Saída esperada:
 ========================
    Estado  : 🟢 ABERTO
    IP ativo: 189.x.x.x
+   Rotas   : /phpmyadmin/ /adminer/
    Auto-Off: 22:45:00
 
 📋 Últimas 10 entradas do log:
 ------------------------
-[2026-02-22 21:45:12] ABERTO  | IP: 189.x.x.x | Duração: 1 hora(s) | Host: meuservidor
-[2026-02-22 20:10:03] FECHADO | Host: meuservidor
+[2026-02-22 21:45:12] ABERTO  | IP: 189.x.x.x | Duração: 1 hora(s) | Rotas: /phpmyadmin/,/adminer/ | Host: meuservidor
+[2026-02-22 20:10:03] FECHADO | Rotas: /phpmyadmin/,/adminer/ | Host: meuservidor
 ```
 
 ---
@@ -225,7 +284,7 @@ Saída esperada:
 ## ⚙️ Como Funciona por Dentro
 
 ```
-[Você faz SSH]
+[Você faz SSH no servidor]
       ↓
 [pma-on lê $SSH_CLIENT e extrai seu IP]
       ↓
@@ -233,18 +292,18 @@ Saída esperada:
       ↓
 [Injeta "allow SEU_IP;" em /etc/nginx/pma_ips.conf]
       ↓
-[Nginx recarrega — só você passa. Mundo leva 403.]
+[Nginx recarrega — todas as rotas com include pma_ips.conf liberam seu IP]
       ↓
-[Registra no /var/log/porteiro.log]
+[Registra no /var/log/porteiro.log com IP e rotas]
       ↓
-[Envia notificação no Telegram (se configurado)]
+[Envia notificação no Telegram com IP, rotas e duração (se configurado)]
       ↓
 [at agenda pma-off para daqui X minutos]
       ↓
-[Tempo esgotado: pma_ips.conf é limpo → 403 pra todo mundo de novo]
+[Tempo esgotado: pma_ips.conf é limpo → 403 em todas as rotas de novo]
 ```
 
-A mágica está na variável nativa `$SSH_CLIENT` do Linux, que expõe o IP, porta de origem e porta de destino da conexão SSH ativa. O Porteiro pega apenas o primeiro campo (o IP) e o usa como chave de acesso temporária.
+A mágica do multi-rota está no arquivo `/etc/nginx/pma_ips.conf` — compartilhado por todos os blocos `location`. Alterar esse arquivo uma vez afeta todas as rotas simultaneamente. O Porteiro nunca toca diretamente na configuração do Nginx.
 
 ---
 
@@ -252,31 +311,33 @@ A mágica está na variável nativa `$SSH_CLIENT` do Linux, que expõe o IP, por
 
 | Cenário | Sem Porteiro | Com Porteiro |
 |---|---|---|
-| `/phpmyadmin/` exposto na internet | ✅ Sim (vulnerável) | ❌ Não (403 pra todos) |
+| Rotas sensíveis expostas na internet | ✅ Sim (vulnerável) | ❌ Não (403 pra todos) |
 | Ataques de força bruta | ✅ Possível | ❌ Impossível (porta fechada) |
 | Acesso do administrador | ✅ Sim | ✅ Sim (via SSH + pma-on) |
 | Esqueceu a porta aberta | ✅ Problema seu | ❌ Auto-Off resolve |
 | Controle do tempo de acesso | ❌ Não | ✅ pma-on 30m / 2h |
+| Proteger múltiplas rotas | ❌ Configuração manual | ✅ Multi-rota com wizard |
 | Auditoria de acessos | ❌ Não | ✅ /var/log/porteiro.log |
 | Alerta no celular | ❌ Não | ✅ Telegram (opcional) |
-| Dependências externas | — | Zero |
 | Configuração necessária | — | ~5 minutos |
+| Dependências externas | — | Zero |
 
 ---
 
 ## ✅ Checklist de Segurança
 
 ### Proteção ✅
-- [x] Rota `/phpmyadmin/` inacessível por padrão (403)
+- [x] Rotas inacessíveis por padrão (403)
 - [x] Liberação apenas para IP autenticado via SSH
 - [x] Auto-Off configurável (anti-esquecimento)
 - [x] Fechamento manual disponível
 - [x] Sem credenciais armazenadas em disco
+- [x] Multi-rota com arquivo compartilhado
 
 ### Monitoramento ✅
-- [x] Log de auditoria em `/var/log/porteiro.log`
-- [x] `pma-status` com estado em tempo real
-- [x] Notificação Telegram (opcional)
+- [x] Log de auditoria com IP e rotas em `/var/log/porteiro.log`
+- [x] `pma-status` com estado e rotas em tempo real
+- [x] Notificação Telegram no `pma-on`, `pma-off` e `pma-status` (opcional)
 
 ### Leveza ✅
 - [x] Zero dependências npm/pip/gem
@@ -289,7 +350,7 @@ A mágica está na variável nativa `$SSH_CLIENT` do Linux, que expõe o IP, por
 - [x] Ubuntu / Debian
 - [x] Qualquer versão do PHP-FPM (ajuste o socket)
 - [x] Nginx (qualquer versão recente)
-- [x] Adaptável para qualquer rota sensível
+- [x] Qualquer rota sensível
 
 ---
 
@@ -302,6 +363,9 @@ O arquivo `/opt/porteiro/porteiro.conf` centraliza tudo:
 DEFAULT_TIME=60
 
 # Rotas protegidas (separadas por espaço)
+# Cada rota deve ter um bloco location no Nginx com:
+#   include /etc/nginx/pma_ips.conf;
+#   deny all;
 ROTAS="/phpmyadmin/ /adminer/ /wp-admin/"
 
 # Telegram (deixe vazio para desativar)
@@ -309,22 +373,43 @@ TELEGRAM_TOKEN=""
 TELEGRAM_CHAT_ID=""
 ```
 
-### Mudar o tempo do Auto-Off padrão
+### Adicionar uma nova rota depois da instalação
 
-Edite `DEFAULT_TIME` no `porteiro.conf`. Ou passe diretamente no comando:
-
+**1. Edite o `porteiro.conf`:**
 ```bash
-pma-on 30m   # 30 minutos
-pma-on 2h    # 2 horas
+sudo nano /opt/porteiro/porteiro.conf
+# Adicione a nova rota em ROTAS:
+ROTAS="/phpmyadmin/ /adminer/"
 ```
 
-### Liberar múltiplos IPs
+**2. Adicione o bloco no Nginx:**
+```nginx
+location ^~ /adminer/ {
+    include /etc/nginx/pma_ips.conf;
+    deny all;
+}
+```
 
-Edite o `pma-on` para adicionar IPs fixos além do seu dinâmico:
+**3. Recarregue o Nginx:**
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+### Mudar o tempo padrão do Auto-Off
+
+Edite `DEFAULT_TIME` no `porteiro.conf` ou passe direto no comando:
 
 ```bash
-echo "allow $MEU_IP;" > "$NGINX_CONF"
-echo "allow IP_DO_SEU_ESCRITORIO;" >> "$NGINX_CONF"
+sudo pma-on 30m   # 30 minutos
+sudo pma-on 2h    # 2 horas
+```
+
+### Usar no servidor local (sem SSH remoto)
+
+O `pma-on` depende da variável `$SSH_CLIENT`, que só existe em sessões SSH remotas. Se estiver no próprio servidor:
+
+```bash
+sudo SSH_CLIENT='SEU_IP 0 0' pma-on
 ```
 
 ---
@@ -332,9 +417,9 @@ echo "allow IP_DO_SEU_ESCRITORIO;" >> "$NGINX_CONF"
 ## 🚀 Roadmap (v3.0) — Próximas Melhorias
 
 - **Suporte a Apache** — Versão equivalente para `.htaccess`
-- **Tempo via argumento no pma-off** — `pma-off` com delay opcional
 - **Rotação de log** — Integração com `logrotate`
 - **Suporte a IPv6** — Para servidores modernos
+- **`pma-off` com delay** — `pma-off 10m` fecha em 10 minutos
 
 ---
 
@@ -361,21 +446,19 @@ Sim! O `pma-on` sempre lê o IP atual da sessão SSH ativa. Cada vez que você r
 
 ### E se eu fechar o terminal antes de rodar pma-off?
 
-O Auto-Off cuida disso. Após o tempo configurado, o acesso é bloqueado automaticamente.
+O Auto-Off cuida disso. Após o tempo configurado, o acesso é bloqueado automaticamente em todas as rotas.
 
 ### O Telegram é obrigatório?
 
 Não. Deixe `TELEGRAM_TOKEN` e `TELEGRAM_CHAT_ID` em branco no `porteiro.conf` e as notificações são ignoradas silenciosamente.
 
-### Posso rodar pma-on direto no servidor (sem SSH remoto)?
+### Como funciona o multi-rota na prática?
 
-O `pma-on` depende da variável `$SSH_CLIENT`, que só existe em sessões SSH remotas. Se estiver no servidor local (console físico ou terminal direto), use:
+O arquivo `/etc/nginx/pma_ips.conf` é compartilhado por todos os blocos `location` que você configurar no Nginx. Quando o `pma-on` injeta seu IP e recarrega o Nginx, todas as rotas com `include /etc/nginx/pma_ips.conf` são liberadas de uma vez. Um `pma-off` limpa o arquivo e bloqueia tudo simultaneamente.
 
-```bash
-sudo SSH_CLIENT='SEU_IP 0 0' pma-on
-```
+### Posso adicionar rotas depois da instalação?
 
-Substituindo `SEU_IP` pelo seu IP real.
+Sim! Edite `ROTAS` no `porteiro.conf`, adicione o bloco correspondente no Nginx e recarregue. Veja a seção **Configurações e Personalização** acima.
 
 ### Posso usar com Apache?
 
