@@ -18,8 +18,8 @@ Enquanto você dorme, bots do mundo todo ficam batendo na porta do seu `/phpmyad
 
 A lógica é simples:
 - 🌍 **Pra internet:** erro 403. Nem existe.
-- 🔑 **Pra você (via SSH):** `sudo pma-on`. Acesso liberado na hora em todas as rotas.
-- ⏱️ **Depois do tempo configurado:** `pma-off`. A porta tranca sozinha, mesmo que você esqueça.
+- 🔑 **Pra você (via SSH):** `sudo porteiro-on`. Acesso liberado na hora em todas as rotas.
+- ⏱️ **Depois do tempo configurado:** `porteiro-off`. A porta tranca sozinha, mesmo que você esqueça.
 
 **Zero dependência externa. Zero banco de dados. Zero token obrigatório. O SSH já é sua identidade.**
 
@@ -31,14 +31,14 @@ A lógica é simples:
 
 - **🔍 Detecção Automática de IP:** Lê seu IP direto da sessão SSH via `$SSH_CLIENT`. Sem digitar nada.
 - **🌍 Isolamento Total:** Bloqueia as rotas com `deny all` para o resto da internet. O `/phpmyadmin/` simplesmente não existe.
-- **⚡ Liberação Instantânea:** Um comando (`sudo pma-on`) e seu navegador já acessa. Nginx recarrega na hora.
-- **⏱️ Tempo Configurável:** `sudo pma-on 30m`, `sudo pma-on 2h` — você define quanto tempo quer de acesso por sessão.
+- **⚡ Liberação Instantânea:** Um comando (`sudo porteiro-on`) e seu navegador já acessa. Nginx recarrega na hora.
+- **⏱️ Tempo Configurável:** `sudo porteiro-on 30m`, `sudo porteiro-on 2h` — você define quanto tempo quer de acesso por sessão.
 - **⏱️ Auto-Off Inteligente:** Fecha automaticamente quando o tempo acabar. Anti-esquecimento nativo.
-- **🔒 Fechamento Manual:** Terminou antes? `sudo pma-off` tranca na hora, sem esperar o timer.
-- **📊 Status em Tempo Real:** `sudo pma-status` mostra se a porta está aberta, qual IP está ativo, quais rotas estão protegidas e o log recente — e notifica via Telegram se configurado.
+- **🔒 Fechamento Manual:** Terminou antes? `sudo porteiro-off` tranca na hora, sem esperar o timer.
+- **📊 Status em Tempo Real:** `sudo porteiro-status` mostra se a porta está aberta, qual IP está ativo, quais rotas estão protegidas e o log recente — e notifica via Telegram se configurado.
 - **📋 Log de Auditoria:** Cada abertura e fechamento é registrado em `/var/log/porteiro.log` com timestamp, IP, rotas e hostname.
 - **📣 Notificação via Telegram:** Receba uma mensagem no celular sempre que a porta abrir, fechar ou o status for consultado. Totalmente opcional — configurado com wizard durante a instalação.
-- **🛣️ Multi-rota:** Proteja `/phpmyadmin/`, `/adminer/`, `/wp-admin/` ou qualquer rota sensível. Um `pma-on` libera tudo, um `pma-off` bloqueia tudo. Rotas escolhidas interativamente durante a instalação.
+- **🛣️ Multi-rota:** Proteja `/phpmyadmin/`, `/adminer/`, `/wp-admin/` ou qualquer rota sensível. Um `porteiro-on` libera tudo, um `porteiro-off` bloqueia tudo. Rotas escolhidas interativamente durante a instalação.
 - **🪶 Levíssimo:** Shell Script puro. Zero dependências externas. Funciona até em VPS de R$15/mês.
 
 ---
@@ -113,10 +113,10 @@ Após os wizards, o instalador também cuida de:
 - Instalar o `at` (se não estiver presente)
 - Criar o diretório `/opt/porteiro/` com os scripts
 - Criar o arquivo de configuração `/opt/porteiro/porteiro.conf` com as rotas escolhidas
-- Criar o arquivo `/etc/nginx/pma_ips.conf`
+- Criar o arquivo `/etc/nginx/porteiro_ips.conf`
 - Criar o log em `/var/log/porteiro.log`
 - Aplicar permissões corretas (`755`, `root:root`)
-- Registrar os comandos globais `pma-on`, `pma-off` e `pma-status`
+- Registrar os comandos globais `porteiro-on`, `porteiro-off` e `porteiro-status`
 - Gerar os **blocos Nginx prontos** para cada rota escolhida
 
 ### 3. Configurar o Nginx (único passo manual)
@@ -126,7 +126,7 @@ Ao final da instalação, o script exibe os blocos Nginx prontos para copiar —
 ```nginx
 # --- PHPMYADMIN ---
 location ^~ /phpmyadmin/ {
-    include /etc/nginx/pma_ips.conf;
+    include /etc/nginx/porteiro_ips.conf;
     deny all;
 
     location ~ \.php$ {
@@ -137,7 +137,7 @@ location ^~ /phpmyadmin/ {
 
 # --- ADMINER ---
 location ^~ /adminer/ {
-    include /etc/nginx/pma_ips.conf;
+    include /etc/nginx/porteiro_ips.conf;
     deny all;
 
     location ~ \.php$ {
@@ -147,7 +147,7 @@ location ^~ /adminer/ {
 }
 ```
 
-> 💡 **Multi-rota:** todas as rotas compartilham o mesmo `/etc/nginx/pma_ips.conf`. Um `pma-on` libera tudo. Um `pma-off` bloqueia tudo.
+> 💡 **Multi-rota:** todas as rotas compartilham o mesmo `/etc/nginx/porteiro_ips.conf`. Um `porteiro-on` libera tudo. Um `porteiro-off` bloqueia tudo.
 
 Abra o arquivo do Nginx, cole os blocos e recarregue:
 
@@ -208,18 +208,18 @@ porteiro/
 
 # Após instalar, os scripts ficam em:
 /opt/porteiro/
-├── pma-on            # Libera seu IP em todas as rotas protegidas
-├── pma-off           # Bloqueia todas as rotas para todo mundo
-├── pma-status        # Mostra estado, rotas ativas e log recente
+├── porteiro-on            # Libera seu IP em todas as rotas protegidas
+├── porteiro-off           # Bloqueia todas as rotas para todo mundo
+├── porteiro-status        # Mostra estado, rotas ativas e log recente
 └── porteiro.conf     # Configurações (tempo, rotas, Telegram)
 
 # Comandos globais registrados em:
-/usr/local/bin/pma-on
-/usr/local/bin/pma-off
-/usr/local/bin/pma-status
+/usr/local/bin/porteiro-on
+/usr/local/bin/porteiro-off
+/usr/local/bin/porteiro-status
 
 # Arquivos gerados no servidor:
-/etc/nginx/pma_ips.conf   # IP injetado dinamicamente (compartilhado por todas as rotas)
+/etc/nginx/porteiro_ips.conf   # IP injetado dinamicamente (compartilhado por todas as rotas)
 /var/log/porteiro.log     # Log de auditoria
 ```
 
@@ -232,9 +232,9 @@ No dia a dia, é só isso:
 ### Abrir o acesso
 
 ```bash
-sudo pma-on          # Usa o tempo padrão (porteiro.conf)
-sudo pma-on 30m      # Libera por 30 minutos
-sudo pma-on 2h       # Libera por 2 horas
+sudo porteiro-on          # Usa o tempo padrão (porteiro.conf)
+sudo porteiro-on 30m      # Libera por 30 minutos
+sudo porteiro-on 2h       # Libera por 2 horas
 ```
 
 Saída esperada:
@@ -249,7 +249,7 @@ Saída esperada:
 ### Fechar o acesso manualmente
 
 ```bash
-sudo pma-off
+sudo porteiro-off
 ```
 
 Saída esperada:
@@ -261,7 +261,7 @@ Saída esperada:
 ### Verificar o status
 
 ```bash
-sudo pma-status
+sudo porteiro-status
 ```
 
 Saída esperada:
@@ -286,24 +286,24 @@ Saída esperada:
 ```
 [Você faz SSH no servidor]
       ↓
-[pma-on lê $SSH_CLIENT e extrai seu IP]
+[porteiro-on lê $SSH_CLIENT e extrai seu IP]
       ↓
 [Processa argumento de tempo (ou usa DEFAULT_TIME do porteiro.conf)]
       ↓
-[Injeta "allow SEU_IP;" em /etc/nginx/pma_ips.conf]
+[Injeta "allow SEU_IP;" em /etc/nginx/porteiro_ips.conf]
       ↓
-[Nginx recarrega — todas as rotas com include pma_ips.conf liberam seu IP]
+[Nginx recarrega — todas as rotas com include porteiro_ips.conf liberam seu IP]
       ↓
 [Registra no /var/log/porteiro.log com IP e rotas]
       ↓
 [Envia notificação no Telegram com IP, rotas e duração (se configurado)]
       ↓
-[at agenda pma-off para daqui X minutos]
+[at agenda porteiro-off para daqui X minutos]
       ↓
-[Tempo esgotado: pma_ips.conf é limpo → 403 em todas as rotas de novo]
+[Tempo esgotado: porteiro_ips.conf é limpo → 403 em todas as rotas de novo]
 ```
 
-A mágica do multi-rota está no arquivo `/etc/nginx/pma_ips.conf` — compartilhado por todos os blocos `location`. Alterar esse arquivo uma vez afeta todas as rotas simultaneamente. O Porteiro nunca toca diretamente na configuração do Nginx.
+A mágica do multi-rota está no arquivo `/etc/nginx/porteiro_ips.conf` — compartilhado por todos os blocos `location`. Alterar esse arquivo uma vez afeta todas as rotas simultaneamente. O Porteiro nunca toca diretamente na configuração do Nginx.
 
 ---
 
@@ -313,9 +313,9 @@ A mágica do multi-rota está no arquivo `/etc/nginx/pma_ips.conf` — compartil
 |---|---|---|
 | Rotas sensíveis expostas na internet | ✅ Sim (vulnerável) | ❌ Não (403 pra todos) |
 | Ataques de força bruta | ✅ Possível | ❌ Impossível (porta fechada) |
-| Acesso do administrador | ✅ Sim | ✅ Sim (via SSH + pma-on) |
+| Acesso do administrador | ✅ Sim | ✅ Sim (via SSH + porteiro-on) |
 | Esqueceu a porta aberta | ✅ Problema seu | ❌ Auto-Off resolve |
-| Controle do tempo de acesso | ❌ Não | ✅ pma-on 30m / 2h |
+| Controle do tempo de acesso | ❌ Não | ✅ porteiro-on 30m / 2h |
 | Proteger múltiplas rotas | ❌ Configuração manual | ✅ Multi-rota com wizard |
 | Auditoria de acessos | ❌ Não | ✅ /var/log/porteiro.log |
 | Alerta no celular | ❌ Não | ✅ Telegram (opcional) |
@@ -336,8 +336,8 @@ A mágica do multi-rota está no arquivo `/etc/nginx/pma_ips.conf` — compartil
 
 ### Monitoramento ✅
 - [x] Log de auditoria com IP e rotas em `/var/log/porteiro.log`
-- [x] `pma-status` com estado e rotas em tempo real
-- [x] Notificação Telegram no `pma-on`, `pma-off` e `pma-status` (opcional)
+- [x] `porteiro-status` com estado e rotas em tempo real
+- [x] Notificação Telegram no `porteiro-on`, `porteiro-off` e `porteiro-status` (opcional)
 
 ### Leveza ✅
 - [x] Zero dependências npm/pip/gem
@@ -364,7 +364,7 @@ DEFAULT_TIME=60
 
 # Rotas protegidas (separadas por espaço)
 # Cada rota deve ter um bloco location no Nginx com:
-#   include /etc/nginx/pma_ips.conf;
+#   include /etc/nginx/porteiro_ips.conf;
 #   deny all;
 ROTAS="/phpmyadmin/ /adminer/ /wp-admin/"
 
@@ -385,7 +385,7 @@ ROTAS="/phpmyadmin/ /adminer/"
 **2. Adicione o bloco no Nginx:**
 ```nginx
 location ^~ /adminer/ {
-    include /etc/nginx/pma_ips.conf;
+    include /etc/nginx/porteiro_ips.conf;
     deny all;
 }
 ```
@@ -400,16 +400,16 @@ sudo nginx -t && sudo systemctl reload nginx
 Edite `DEFAULT_TIME` no `porteiro.conf` ou passe direto no comando:
 
 ```bash
-sudo pma-on 30m   # 30 minutos
-sudo pma-on 2h    # 2 horas
+sudo porteiro-on 30m   # 30 minutos
+sudo porteiro-on 2h    # 2 horas
 ```
 
 ### Usar no servidor local (sem SSH remoto)
 
-O `pma-on` depende da variável `$SSH_CLIENT`, que só existe em sessões SSH remotas. Se estiver no próprio servidor:
+O `porteiro-on` depende da variável `$SSH_CLIENT`, que só existe em sessões SSH remotas. Se estiver no próprio servidor:
 
 ```bash
-sudo SSH_CLIENT='SEU_IP 0 0' pma-on
+sudo SSH_CLIENT='SEU_IP 0 0' porteiro-on
 ```
 
 ---
@@ -419,7 +419,7 @@ sudo SSH_CLIENT='SEU_IP 0 0' pma-on
 - **Suporte a Apache** — Versão equivalente para `.htaccess`
 - **Rotação de log** — Integração com `logrotate`
 - **Suporte a IPv6** — Para servidores modernos
-- **`pma-off` com delay** — `pma-off 10m` fecha em 10 minutos
+- **`porteiro-off` com delay** — `porteiro-off 10m` fecha em 10 minutos
 
 ---
 
@@ -442,9 +442,9 @@ Não — ele age na camada do Nginx (HTTP), enquanto o firewall age na camada de
 
 ### Funciona se meu IP residencial muda toda hora?
 
-Sim! O `pma-on` sempre lê o IP atual da sessão SSH ativa. Cada vez que você rodar, ele atualiza automaticamente.
+Sim! O `porteiro-on` sempre lê o IP atual da sessão SSH ativa. Cada vez que você rodar, ele atualiza automaticamente.
 
-### E se eu fechar o terminal antes de rodar pma-off?
+### E se eu fechar o terminal antes de rodar porteiro-off?
 
 O Auto-Off cuida disso. Após o tempo configurado, o acesso é bloqueado automaticamente em todas as rotas.
 
@@ -454,7 +454,7 @@ Não. Deixe `TELEGRAM_TOKEN` e `TELEGRAM_CHAT_ID` em branco no `porteiro.conf` e
 
 ### Como funciona o multi-rota na prática?
 
-O arquivo `/etc/nginx/pma_ips.conf` é compartilhado por todos os blocos `location` que você configurar no Nginx. Quando o `pma-on` injeta seu IP e recarrega o Nginx, todas as rotas com `include /etc/nginx/pma_ips.conf` são liberadas de uma vez. Um `pma-off` limpa o arquivo e bloqueia tudo simultaneamente.
+O arquivo `/etc/nginx/porteiro_ips.conf` é compartilhado por todos os blocos `location` que você configurar no Nginx. Quando o `porteiro-on` injeta seu IP e recarrega o Nginx, todas as rotas com `include /etc/nginx/porteiro_ips.conf` são liberadas de uma vez. Um `porteiro-off` limpa o arquivo e bloqueia tudo simultaneamente.
 
 ### Posso adicionar rotas depois da instalação?
 

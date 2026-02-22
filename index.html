@@ -1,0 +1,1096 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="scroll-smooth">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Porteiro — Segurança para seu servidor</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,300;0,400;0,600;0,700;0,800;0,900;1,700;1,900&family=Barlow:wght@300;400;500&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        condensed: ['Barlow Condensed', 'sans-serif'],
+                        body: ['Barlow', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                }
+            }
+        }
+    </script>
+
+    <style>
+        :root {
+            --green: #00E87A;
+            --green-dim: #00b85f;
+            --black: #080808;
+            --white: #F8F8F6;
+            --gray: #EAEAE6;
+            --mid: #9A9A94;
+            --border: #DDDDD8;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html {
+            background: var(--white);
+        }
+
+        body {
+            background: var(--white);
+            color: var(--black);
+            font-family: 'Barlow', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            cursor: none;
+        }
+
+        /* ── Custom cursor ── */
+        .cursor-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--green);
+            border-radius: 50%;
+            position: fixed;
+            z-index: 9999;
+            pointer-events: none;
+            transform: translate(-50%, -50%);
+        }
+
+        .cursor-ring {
+            width: 36px;
+            height: 36px;
+            border: 1.5px solid var(--black);
+            border-radius: 50%;
+            position: fixed;
+            z-index: 9998;
+            pointer-events: none;
+            transition: width 0.2s, height 0.2s, border-color 0.2s;
+            transform: translate(-50%, -50%);
+        }
+
+        .cursor-ring.hovering {
+            width: 56px;
+            height: 56px;
+            border-color: var(--green);
+        }
+
+        /* ── Navbar ── */
+        .navbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            background: rgba(248, 248, 246, 0.92);
+            backdrop-filter: blur(16px);
+            border-bottom: 1px solid var(--border);
+        }
+
+        /* ── Typography ── */
+        .display {
+            font-family: 'Barlow Condensed', sans-serif;
+            font-weight: 900;
+            line-height: 0.92;
+            letter-spacing: -0.01em;
+            text-transform: uppercase;
+        }
+
+        .display-italic {
+            font-family: 'Barlow Condensed', sans-serif;
+            font-style: italic;
+            font-weight: 900;
+            text-transform: uppercase;
+            line-height: 0.92;
+        }
+
+        .label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: var(--mid);
+        }
+
+        /* ── Tags ── */
+        .tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border: 1px solid var(--border);
+            border-radius: 100px;
+            padding: 5px 14px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            color: var(--mid);
+            letter-spacing: 0.06em;
+        }
+
+        .tag-green {
+            background: var(--green);
+            border-color: var(--green);
+            color: var(--black);
+            font-weight: 500;
+        }
+
+        /* ── Reveal ── */
+        .reveal {
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.55s cubic-bezier(.22, 1, .36, 1), transform 0.55s cubic-bezier(.22, 1, .36, 1);
+        }
+
+        .reveal.visible {
+            opacity: 1;
+            transform: none;
+        }
+
+        /* ── Terminal ── */
+        .terminal {
+            background: #0C0C0C;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid #1E1E1E;
+        }
+
+        .t-bar {
+            background: #161616;
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            border-bottom: 1px solid #1E1E1E;
+        }
+
+        .tdot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        .t-body {
+            padding: 20px 24px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12.5px;
+            line-height: 1.9;
+            color: #BABABA;
+        }
+
+        .tg {
+            color: #00E87A;
+        }
+
+        .ty {
+            color: #F5C842;
+        }
+
+        .tb {
+            color: #7EB8F7;
+        }
+
+        .tm {
+            color: #444;
+        }
+
+        .tw {
+            color: #EFEFEF;
+        }
+
+        .tr {
+            color: #FF6B6B;
+        }
+
+        .tcursor {
+            animation: tblink 1s step-end infinite;
+        }
+
+        @keyframes tblink {
+
+            0%,
+            100% {
+                opacity: 1
+            }
+
+            50% {
+                opacity: 0
+            }
+        }
+
+        /* ── Buttons ── */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 13px 28px;
+            border-radius: 6px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            font-weight: 500;
+            text-decoration: none;
+            transition: all 0.2s cubic-bezier(.22, 1, .36, 1);
+            cursor: none;
+        }
+
+        .btn-fill {
+            background: var(--black);
+            color: var(--white);
+            border: 1.5px solid var(--black);
+        }
+
+        .btn-fill:hover {
+            background: var(--green);
+            border-color: var(--green);
+            color: var(--black);
+            transform: translateY(-2px);
+        }
+
+        .btn-stroke {
+            background: transparent;
+            color: var(--black);
+            border: 1.5px solid var(--border);
+        }
+
+        .btn-stroke:hover {
+            border-color: var(--black);
+            transform: translateY(-2px);
+        }
+
+        /* ── Cards ── */
+        .card {
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 28px;
+            transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+        }
+
+        .card:hover {
+            border-color: var(--green);
+            box-shadow: 0 4px 24px rgba(0, 232, 122, 0.1);
+            transform: translateY(-3px);
+        }
+
+        /* ── Ticker ── */
+        .ticker-wrap {
+            overflow: hidden;
+            border-top: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
+            background: var(--black);
+            white-space: nowrap;
+        }
+
+        .ticker-inner {
+            display: inline-flex;
+            animation: ticker 24s linear infinite;
+        }
+
+        .ticker-item {
+            font-family: 'Barlow Condensed', sans-serif;
+            font-weight: 700;
+            font-size: 13px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--white);
+            padding: 12px 32px;
+        }
+
+        .ticker-sep {
+            color: var(--green);
+            padding: 12px 8px;
+            font-family: monospace;
+        }
+
+        @keyframes ticker {
+            from {
+                transform: translateX(0)
+            }
+
+            to {
+                transform: translateX(-50%)
+            }
+        }
+
+        .ticker-wrap:hover .ticker-inner {
+            animation-play-state: paused;
+        }
+
+        /* ── Step number ── */
+        .step-n {
+            font-family: 'Barlow Condensed', sans-serif;
+            font-weight: 900;
+            font-size: 4rem;
+            color: #EAEAE6;
+            line-height: 1;
+            position: absolute;
+            top: 16px;
+            right: 20px;
+        }
+
+        /* ── Comparison ── */
+        .cmp-yes {
+            color: #00b85f;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+        }
+
+        .cmp-no {
+            color: #FF6B6B;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+        }
+
+        /* ── Cmd pills ── */
+        .cmd {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--gray);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 9px 18px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: var(--black);
+            transition: all 0.2s;
+            cursor: none;
+        }
+
+        .cmd:hover {
+            background: var(--black);
+            color: var(--green);
+            border-color: var(--black);
+        }
+
+        .cmd-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--green);
+            flex-shrink: 0;
+        }
+
+        /* ── FAQ ── */
+        .faq-item {
+            border-bottom: 1px solid var(--border);
+        }
+
+        .faq-btn {
+            width: 100%;
+            background: none;
+            border: none;
+            cursor: none;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 20px 0;
+            font-family: 'Barlow Condensed', sans-serif;
+            font-size: 22px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+            color: var(--black);
+            text-align: left;
+        }
+
+        .faq-icon {
+            transition: transform 0.3s;
+            font-size: 14px;
+            color: var(--mid);
+            flex-shrink: 0;
+        }
+
+        .faq-item.open .faq-icon {
+            transform: rotate(45deg);
+            color: var(--green);
+        }
+
+        .faq-body {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.4s ease;
+        }
+
+        .faq-item.open .faq-body {
+            max-height: 300px;
+            padding-bottom: 20px;
+        }
+
+        /* ── Stat ── */
+        .stat-big {
+            font-family: 'Barlow Condensed', sans-serif;
+            font-weight: 900;
+            font-size: 5rem;
+            line-height: 1;
+            color: var(--green);
+        }
+
+        hr {
+            border: none;
+            border-top: 1px solid var(--border);
+        }
+
+        ::selection {
+            background: var(--green);
+            color: var(--black);
+        }
+
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--white);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 2px;
+        }
+
+        footer {
+            background: var(--black);
+        }
+
+        #mobileMenu {
+            display: none;
+        }
+
+        #mobileMenu.open {
+            display: flex;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="cursor-dot" id="cursorDot"></div>
+    <div class="cursor-ring" id="cursorRing"></div>
+
+    <!-- NAVBAR -->
+    <nav class="navbar">
+        <div class="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <span>🚪</span>
+                <span class="font-condensed font-black text-xl uppercase"
+                    style="letter-spacing:-0.01em;">Porteiro</span>
+                <span class="tag tag-green ml-1">v2.0</span>
+            </div>
+            <div class="hidden md:flex items-center gap-7">
+                <a href="#funcionalidades" class="label hover:text-black transition-colors"
+                    style="cursor:none;">Funcionalidades</a>
+                <a href="#como-funciona" class="label hover:text-black transition-colors" style="cursor:none;">Como
+                    funciona</a>
+                <a href="#instalacao" class="label hover:text-black transition-colors"
+                    style="cursor:none;">Instalação</a>
+                <a href="#faq" class="label hover:text-black transition-colors" style="cursor:none;">FAQ</a>
+                <a href="https://github.com/henriquetourinho/porteiro" target="_blank"
+                    class="btn btn-fill py-2 px-5 text-[11px]">
+                    <i class="fab fa-github"></i> GitHub
+                </a>
+            </div>
+            <button id="menuBtn" class="md:hidden" style="cursor:none;background:none;border:none;">
+                <i class="fas fa-bars" style="color:var(--mid);"></i>
+            </button>
+        </div>
+        <div id="mobileMenu" class="flex-col border-t px-6 py-5 gap-5 bg-white/95" style="border-color:var(--border);">
+            <a href="#funcionalidades" class="label" style="cursor:none;">Funcionalidades</a>
+            <a href="#como-funciona" class="label" style="cursor:none;">Como funciona</a>
+            <a href="#instalacao" class="label" style="cursor:none;">Instalação</a>
+            <a href="#faq" class="label" style="cursor:none;">FAQ</a>
+            <a href="https://github.com/henriquetourinho/porteiro" target="_blank" class="btn btn-fill w-fit">
+                <i class="fab fa-github"></i> GitHub
+            </a>
+        </div>
+    </nav>
+
+    <!-- HERO -->
+    <section class="min-h-screen flex flex-col justify-center pt-20 pb-0 px-6 overflow-hidden">
+        <div class="max-w-6xl mx-auto w-full">
+            <div class="grid md:grid-cols-[1fr_420px] gap-12 items-center">
+
+                <div>
+                    <div class="tag reveal mb-8">
+                        <span
+                            style="width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block;animation:pulse 2s infinite;"></span>
+                        Shell Script · Nginx · Open Source
+                    </div>
+
+                    <h1 class="reveal" style="transition-delay:0.04s;">
+                        <span class="display block" style="font-size:clamp(5rem,13vw,10rem);">Seu</span>
+                        <span class="display block" style="font-size:clamp(5rem,13vw,10rem);">servidor</span>
+                        <span class="display-italic block"
+                            style="font-size:clamp(5rem,13vw,10rem);color:var(--green);">tem segurança</span>
+                        <span class="display block" style="font-size:clamp(5rem,13vw,10rem);">agora.</span>
+                    </h1>
+
+                    <p class="reveal mt-8 max-w-lg"
+                        style="font-size:17px;color:#555;line-height:1.65;font-weight:300;transition-delay:0.08s;">
+                        O <strong style="font-weight:500;color:var(--black);">Porteiro</strong> mantém seu
+                        <code
+                            style="font-family:'JetBrains Mono',monospace;font-size:13px;background:var(--gray);padding:2px 8px;border-radius:4px;">/phpmyadmin/</code>
+                        bloqueado para a internet. Libera só para você — via SSH.
+                    </p>
+
+                    <div class="flex flex-wrap gap-3 mt-10 reveal" style="transition-delay:0.12s;">
+                        <a href="#instalacao" class="btn btn-fill"><i class="fas fa-terminal text-[11px]"></i> Instalar
+                            agora</a>
+                        <a href="https://github.com/henriquetourinho/porteiro" target="_blank" class="btn btn-stroke"><i
+                                class="fab fa-github"></i> Ver código</a>
+                    </div>
+
+                    <div class="flex gap-10 mt-14 pt-8 reveal"
+                        style="border-top:1px solid var(--border);transition-delay:0.16s;">
+                        <div>
+                            <div class="stat-big">0</div>
+                            <div class="label mt-1">dependências</div>
+                        </div>
+                        <div>
+                            <div class="stat-big">5<span style="font-size:2rem">min</span></div>
+                            <div class="label mt-1">para instalar</div>
+                        </div>
+                        <div>
+                            <div class="stat-big">MIT</div>
+                            <div class="label mt-1">licença</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="reveal" style="transition-delay:0.2s;">
+                    <div class="terminal">
+                        <div class="t-bar">
+                            <div class="tdot" style="background:#FF5F57;"></div>
+                            <div class="tdot" style="background:#FEBC2E;"></div>
+                            <div class="tdot" style="background:#28C840;"></div>
+                            <span
+                                style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#444;margin-left:12px;">porteiro@vps</span>
+                        </div>
+                        <div class="t-body">
+                            <div><span class="tm"># instalar</span></div>
+                            <div><span class="tg">$</span> <span class="tw">git clone github.com/</span></div>
+                            <div style="padding-left:16px;"><span class="tw">henriquetourinho/porteiro</span></div>
+                            <div><span class="tg">$</span> <span class="tw">sudo bash install.sh</span></div>
+                            <br>
+                            <div><span class="tm"># abrir acesso (via SSH)</span></div>
+                            <div><span class="tg">$</span> <span class="tw">sudo porteiro-on 2h</span></div>
+                            <div style="padding-left:14px;"><span class="tg">✅ Acesso liberado!</span></div>
+                            <div style="padding-left:14px;"><span class="tm">IP :</span> <span
+                                    class="ty">189.x.x.x</span></div>
+                            <div style="padding-left:14px;"><span class="tm">Rotas :</span> <span
+                                    class="tb">/phpmyadmin/ /adminer/</span></div>
+                            <div style="padding-left:14px;"><span class="tm">Off em:</span> <span class="tw">2h</span>
+                            </div>
+                            <br>
+                            <div><span class="tg">$</span> <span class="tw">sudo porteiro-off</span></div>
+                            <div style="padding-left:14px;"><span class="tr">🔒 Bloqueado.</span></div>
+                            <div><span class="tg">$</span> <span class="tw tcursor"> </span></div>
+                        </div>
+                    </div>
+                    <div class="mt-3 flex items-center gap-3 px-4 py-3 rounded-lg"
+                        style="background:#F0FFF7;border:1px solid #C3F5DA;">
+                        <i class="fas fa-shield-halved" style="color:var(--green-dim);"></i>
+                        <span style="font-size:13px;color:#1a7a48;font-weight:400;">Auto-Off automático. Esqueceu? O
+                            Porteiro não.</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- TICKER -->
+    <div class="ticker-wrap my-16">
+        <div class="ticker-inner">
+            <span class="ticker-item">porteiro-on</span><span class="ticker-sep">·</span>
+            <span class="ticker-item">porteiro-off</span><span class="ticker-sep">·</span>
+            <span class="ticker-item">porteiro-status</span><span class="ticker-sep">·</span>
+            <span class="ticker-item">multi-rota</span><span class="ticker-sep">·</span>
+            <span class="ticker-item">auto-off</span><span class="ticker-sep">·</span>
+            <span class="ticker-item">telegram</span><span class="ticker-sep">·</span>
+            <span class="ticker-item">nginx</span><span class="ticker-sep">·</span>
+            <span class="ticker-item">open source</span><span class="ticker-sep">·</span>
+            <span class="ticker-item">zero deps</span><span class="ticker-sep">·</span>
+            <span class="ticker-item">porteiro-on</span><span class="ticker-sep">·</span>
+            <span class="ticker-item">porteiro-off</span><span class="ticker-sep">·</span>
+            <span class="ticker-item">porteiro-status</span><span class="ticker-sep">·</span>
+            <span class="ticker-item">multi-rota</span><span class="ticker-sep">·</span>
+            <span class="ticker-item">auto-off</span><span class="ticker-sep">·</span>
+            <span class="ticker-item">telegram</span><span class="ticker-sep">·</span>
+            <span class="ticker-item">nginx</span><span class="ticker-sep">·</span>
+            <span class="ticker-item">open source</span><span class="ticker-sep">·</span>
+            <span class="ticker-item">zero deps</span><span class="ticker-sep">·</span>
+        </div>
+    </div>
+
+    <hr>
+
+    <!-- FEATURES -->
+    <section id="funcionalidades" class="py-24 px-6">
+        <div class="max-w-6xl mx-auto">
+            <div class="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-16">
+                <div class="reveal">
+                    <div class="label mb-3">Funcionalidades</div>
+                    <h2 class="display" style="font-size:clamp(3rem,6vw,5rem);">Tudo que<br>você precisa.</h2>
+                </div>
+                <p class="reveal"
+                    style="font-size:15px;color:var(--mid);max-width:320px;font-weight:300;line-height:1.6;transition-delay:0.05s;">
+                    Nada que você não precisa. Shell Script puro, sem framework, sem runtime.
+                </p>
+            </div>
+
+            <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div class="card reveal">
+                    <div style="font-size:24px;margin-bottom:14px;">🔍</div>
+                    <h3 class="font-condensed font-bold text-xl uppercase mb-2 tracking-wide">Detecção de IP via SSH
+                    </h3>
+                    <p style="font-size:14px;color:var(--mid);line-height:1.6;font-weight:300;">Lê seu IP direto da
+                        sessão SSH via <code
+                            style="font-family:'JetBrains Mono',monospace;font-size:11px;background:var(--gray);padding:2px 6px;border-radius:3px;">$SSH_CLIENT</code>.
+                        Zero configuração manual.</p>
+                </div>
+                <div class="card reveal" style="transition-delay:0.05s;">
+                    <div style="font-size:24px;margin-bottom:14px;">⏱️</div>
+                    <h3 class="font-condensed font-bold text-xl uppercase mb-2 tracking-wide">Tempo Configurável</h3>
+                    <p style="font-size:14px;color:var(--mid);line-height:1.6;font-weight:300;"><code
+                            style="font-family:'JetBrains Mono',monospace;font-size:11px;background:var(--gray);padding:2px 6px;border-radius:3px;">porteiro-on 30m</code>
+                        ou <code
+                            style="font-family:'JetBrains Mono',monospace;font-size:11px;background:var(--gray);padding:2px 6px;border-radius:3px;">2h</code>.
+                        Auto-Off automático quando o tempo acabar.</p>
+                </div>
+                <div class="card reveal" style="transition-delay:0.10s;">
+                    <div style="font-size:24px;margin-bottom:14px;">🛣️</div>
+                    <h3 class="font-condensed font-bold text-xl uppercase mb-2 tracking-wide">Multi-rota</h3>
+                    <p style="font-size:14px;color:var(--mid);line-height:1.6;font-weight:300;">Proteja <code
+                            style="font-family:'JetBrains Mono',monospace;font-size:11px;background:var(--gray);padding:2px 6px;border-radius:3px;">/phpmyadmin/</code>,
+                        <code
+                            style="font-family:'JetBrains Mono',monospace;font-size:11px;background:var(--gray);padding:2px 6px;border-radius:3px;">/adminer/</code>,
+                        <code
+                            style="font-family:'JetBrains Mono',monospace;font-size:11px;background:var(--gray);padding:2px 6px;border-radius:3px;">/wp-admin/</code>
+                        de uma vez.</p>
+                </div>
+                <div class="card reveal" style="transition-delay:0.15s;">
+                    <div style="font-size:24px;margin-bottom:14px;">📋</div>
+                    <h3 class="font-condensed font-bold text-xl uppercase mb-2 tracking-wide">Log de Auditoria</h3>
+                    <p style="font-size:14px;color:var(--mid);line-height:1.6;font-weight:300;">Cada evento registrado
+                        com IP, rotas e timestamp em <code
+                            style="font-family:'JetBrains Mono',monospace;font-size:11px;background:var(--gray);padding:2px 6px;border-radius:3px;">/var/log/porteiro.log</code>.
+                    </p>
+                </div>
+                <div class="card reveal" style="transition-delay:0.20s;">
+                    <div style="font-size:24px;margin-bottom:14px;">📣</div>
+                    <h3 class="font-condensed font-bold text-xl uppercase mb-2 tracking-wide">Telegram</h3>
+                    <p style="font-size:14px;color:var(--mid);line-height:1.6;font-weight:300;">Alerta no celular a cada
+                        <code
+                            style="font-family:'JetBrains Mono',monospace;font-size:11px;background:var(--gray);padding:2px 6px;border-radius:3px;">porteiro-on</code>,
+                        <code
+                            style="font-family:'JetBrains Mono',monospace;font-size:11px;background:var(--gray);padding:2px 6px;border-radius:3px;">off</code>
+                        e <code
+                            style="font-family:'JetBrains Mono',monospace;font-size:11px;background:var(--gray);padding:2px 6px;border-radius:3px;">status</code>.
+                        Opcional.</p>
+                </div>
+                <div class="card reveal" style="transition-delay:0.25s;">
+                    <div style="font-size:24px;margin-bottom:14px;">🪶</div>
+                    <h3 class="font-condensed font-bold text-xl uppercase mb-2 tracking-wide">Zero Dependências</h3>
+                    <p style="font-size:14px;color:var(--mid);line-height:1.6;font-weight:300;">Shell Script puro. Sem
+                        npm, sem pip, sem Docker. Qualquer VPS Ubuntu/Debian com Nginx.</p>
+                </div>
+            </div>
+
+            <div class="flex flex-wrap gap-3 mt-14 justify-center reveal">
+                <div class="cmd"><span class="cmd-dot"></span> sudo porteiro-on [tempo]</div>
+                <div class="cmd"><span class="cmd-dot"></span> sudo porteiro-off</div>
+                <div class="cmd"><span class="cmd-dot"></span> sudo porteiro-status</div>
+            </div>
+        </div>
+    </section>
+
+    <hr>
+
+    <!-- HOW IT WORKS -->
+    <section id="como-funciona" class="py-24 px-6" style="background:var(--gray);">
+        <div class="max-w-6xl mx-auto">
+            <div class="grid md:grid-cols-2 gap-16 items-start">
+                <div>
+                    <div class="label mb-3 reveal">Como funciona</div>
+                    <h2 class="display mb-12 reveal" style="font-size:clamp(3rem,6vw,5rem);transition-delay:0.05s;">
+                        Simples<br>por design.</h2>
+                    <div class="space-y-8">
+                        <div class="flex gap-5 reveal">
+                            <div
+                                style="width:36px;height:36px;border:1.5px solid var(--black);border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                                <span
+                                    style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:14px;">01</span>
+                            </div>
+                            <div>
+                                <h4 class="font-condensed font-bold text-lg uppercase tracking-wide mb-1">SSH no
+                                    servidor</h4>
+                                <p style="font-size:14px;color:var(--mid);line-height:1.6;font-weight:300;">A variável
+                                    <code
+                                        style="font-family:'JetBrains Mono',monospace;font-size:11px;background:#fff;padding:2px 6px;border-radius:3px;">$SSH_CLIENT</code>
+                                    expõe seu IP automaticamente.</p>
+                            </div>
+                        </div>
+                        <div class="flex gap-5 reveal" style="transition-delay:0.05s;">
+                            <div
+                                style="width:36px;height:36px;border:1.5px solid var(--black);border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                                <span
+                                    style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:14px;">02</span>
+                            </div>
+                            <div>
+                                <h4 class="font-condensed font-bold text-lg uppercase tracking-wide mb-1">sudo
+                                    porteiro-on</h4>
+                                <p style="font-size:14px;color:var(--mid);line-height:1.6;font-weight:300;">IP injetado
+                                    em <code
+                                        style="font-family:'JetBrains Mono',monospace;font-size:11px;background:#fff;padding:2px 6px;border-radius:3px;">porteiro_ips.conf</code>.
+                                    Nginx recarrega em segundos.</p>
+                            </div>
+                        </div>
+                        <div class="flex gap-5 reveal" style="transition-delay:0.10s;">
+                            <div
+                                style="width:36px;height:36px;border:1.5px solid var(--black);border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                                <span
+                                    style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:14px;">03</span>
+                            </div>
+                            <div>
+                                <h4 class="font-condensed font-bold text-lg uppercase tracking-wide mb-1">Todas as rotas
+                                    liberadas</h4>
+                                <p style="font-size:14px;color:var(--mid);line-height:1.6;font-weight:300;">Um arquivo
+                                    compartilhado por todos os blocos <code
+                                        style="font-family:'JetBrains Mono',monospace;font-size:11px;background:#fff;padding:2px 6px;border-radius:3px;">location</code>.
+                                    Um comando libera tudo.</p>
+                            </div>
+                        </div>
+                        <div class="flex gap-5 reveal" style="transition-delay:0.15s;">
+                            <div
+                                style="width:36px;height:36px;background:var(--black);border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                                <span
+                                    style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:14px;color:var(--green);">04</span>
+                            </div>
+                            <div>
+                                <h4 class="font-condensed font-bold text-lg uppercase tracking-wide mb-1">Auto-Off
+                                    automático</h4>
+                                <p style="font-size:14px;color:var(--mid);line-height:1.6;font-weight:300;">O <code
+                                        style="font-family:'JetBrains Mono',monospace;font-size:11px;background:#fff;padding:2px 6px;border-radius:3px;">at</code>
+                                    agenda o fechamento. Esqueceu? O Porteiro não esquece.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="reveal" style="transition-delay:0.2s;">
+                    <div style="background:#fff;border:1px solid var(--border);border-radius:10px;overflow:hidden;">
+                        <div
+                            style="padding:20px 24px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+                            <span class="font-condensed font-bold text-lg uppercase tracking-wide">Sem Porteiro</span>
+                            <span class="font-condensed font-bold text-lg uppercase tracking-wide"
+                                style="color:var(--green);">Com Porteiro</span>
+                        </div>
+                        <div>
+                            <div
+                                style="padding:14px 24px;display:flex;justify-content:space-between;border-bottom:1px solid var(--gray);">
+                                <span style="font-size:13px;color:var(--mid);">/phpmyadmin/ exposto</span>
+                                <div style="display:flex;gap:32px;"><span class="cmp-no">✗ Sim</span><span
+                                        class="cmp-yes">✓ 403</span></div>
+                            </div>
+                            <div
+                                style="padding:14px 24px;display:flex;justify-content:space-between;border-bottom:1px solid var(--gray);">
+                                <span style="font-size:13px;color:var(--mid);">Força bruta</span>
+                                <div style="display:flex;gap:32px;"><span class="cmp-no">✗ Possível</span><span
+                                        class="cmp-yes">✓ Bloqueado</span></div>
+                            </div>
+                            <div
+                                style="padding:14px 24px;display:flex;justify-content:space-between;border-bottom:1px solid var(--gray);">
+                                <span style="font-size:13px;color:var(--mid);">Esqueceu a porta</span>
+                                <div style="display:flex;gap:32px;"><span class="cmp-no">✗ Problema</span><span
+                                        class="cmp-yes">✓ Auto-Off</span></div>
+                            </div>
+                            <div
+                                style="padding:14px 24px;display:flex;justify-content:space-between;border-bottom:1px solid var(--gray);">
+                                <span style="font-size:13px;color:var(--mid);">Multi-rota</span>
+                                <div style="display:flex;gap:32px;"><span class="cmp-no">✗ Manual</span><span
+                                        class="cmp-yes">✓ Wizard</span></div>
+                            </div>
+                            <div
+                                style="padding:14px 24px;display:flex;justify-content:space-between;border-bottom:1px solid var(--gray);">
+                                <span style="font-size:13px;color:var(--mid);">Log de auditoria</span>
+                                <div style="display:flex;gap:32px;"><span class="cmp-no">✗ Não</span><span
+                                        class="cmp-yes">✓ Sim</span></div>
+                            </div>
+                            <div
+                                style="padding:14px 24px;display:flex;justify-content:space-between;border-bottom:1px solid var(--gray);">
+                                <span style="font-size:13px;color:var(--mid);">Telegram</span>
+                                <div style="display:flex;gap:32px;"><span class="cmp-no">✗ Não</span><span
+                                        class="cmp-yes">✓ Opcional</span></div>
+                            </div>
+                            <div style="padding:14px 24px;display:flex;justify-content:space-between;"><span
+                                    style="font-size:13px;color:var(--mid);">Dependências</span>
+                                <div style="display:flex;gap:32px;"><span
+                                        style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--mid);">—</span><span
+                                        class="cmp-yes">✓ Zero</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <hr>
+
+    <!-- INSTALL -->
+    <section id="instalacao" class="py-24 px-6">
+        <div class="max-w-6xl mx-auto">
+            <div class="mb-16 reveal">
+                <div class="label mb-3">Instalação</div>
+                <h2 class="display" style="font-size:clamp(3rem,6vw,5rem);">3 passos.<br>5 minutos.</h2>
+            </div>
+            <div class="grid md:grid-cols-3 gap-5">
+                <div class="card reveal relative overflow-hidden"><span class="step-n">01</span>
+                    <div class="label mb-4">Clonar</div>
+                    <div class="terminal">
+                        <div class="t-bar">
+                            <div class="tdot" style="background:#FF5F57;"></div>
+                            <div class="tdot" style="background:#FEBC2E;"></div>
+                            <div class="tdot" style="background:#28C840;"></div>
+                        </div>
+                        <div class="t-body" style="font-size:11.5px;">
+                            <div><span class="tg">$</span> <span class="tw">git clone github.com/</span></div>
+                            <div style="padding-left:12px;"><span class="tw">henriquetourinho/porteiro</span></div>
+                            <div><span class="tg">$</span> <span class="tw">cd porteiro</span></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card reveal relative overflow-hidden" style="transition-delay:0.08s;"><span
+                        class="step-n">02</span>
+                    <div class="label mb-4">Instalar</div>
+                    <div class="terminal">
+                        <div class="t-bar">
+                            <div class="tdot" style="background:#FF5F57;"></div>
+                            <div class="tdot" style="background:#FEBC2E;"></div>
+                            <div class="tdot" style="background:#28C840;"></div>
+                        </div>
+                        <div class="t-body" style="font-size:11.5px;">
+                            <div><span class="tg">$</span> <span class="tw">sudo bash install.sh</span></div>
+                            <div style="padding-left:12px;"><span class="tm"># wizard: rotas</span></div>
+                            <div style="padding-left:12px;"><span class="tm"># wizard: telegram</span></div>
+                            <div style="padding-left:12px;"><span class="tg">✅ instalado!</span></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card reveal relative overflow-hidden" style="transition-delay:0.16s;"><span
+                        class="step-n">03</span>
+                    <div class="label mb-4">Nginx</div>
+                    <div class="terminal">
+                        <div class="t-bar">
+                            <div class="tdot" style="background:#FF5F57;"></div>
+                            <div class="tdot" style="background:#FEBC2E;"></div>
+                            <div class="tdot" style="background:#28C840;"></div>
+                        </div>
+                        <div class="t-body" style="font-size:11.5px;">
+                            <div><span class="tm"># cole o bloco gerado</span></div>
+                            <div><span class="tg">$</span> <span class="tw">sudo nginx -t</span></div>
+                            <div><span class="tg">$</span> <span class="tw">sudo systemctl</span></div>
+                            <div style="padding-left:12px;"><span class="tw">reload nginx</span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="mt-8 flex flex-col sm:flex-row items-center justify-between gap-5 px-8 py-6 rounded-xl reveal"
+                style="background:var(--black);transition-delay:0.24s;">
+                <div>
+                    <p class="font-condensed font-black text-white text-2xl uppercase tracking-wide">Pronto para
+                        instalar?</p>
+                    <p style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#555;margin-top:4px;">Open
+                        Source · MIT · Ubuntu/Debian</p>
+                </div>
+                <a href="https://github.com/henriquetourinho/porteiro" target="_blank" class="btn"
+                    style="background:var(--green);border:1.5px solid var(--green);color:var(--black);font-family:'JetBrains Mono',monospace;font-size:12px;">
+                    <i class="fab fa-github"></i> Ver no GitHub
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <hr>
+
+    <!-- QUOTE -->
+    <section style="background:var(--green);padding:80px 24px;">
+        <div class="max-w-4xl mx-auto text-center reveal">
+            <p class="display-italic" style="font-size:clamp(2.5rem,6vw,5rem);color:var(--black);">"Código
+                aberto.<br>Porta fechada."</p>
+            <p
+                style="font-family:'JetBrains Mono',monospace;font-size:11px;color:rgba(0,0,0,0.45);margin-top:20px;letter-spacing:0.08em;">
+                — CARLOS HENRIQUE TOURINHO SANTANA · SALVADOR, BAHIA 🌴</p>
+        </div>
+    </section>
+
+    <!-- FAQ -->
+    <section id="faq" class="py-24 px-6">
+        <div class="max-w-3xl mx-auto">
+            <div class="mb-12 reveal">
+                <div class="label mb-3">FAQ</div>
+                <h2 class="display" style="font-size:clamp(3rem,6vw,5rem);">Dúvidas<br>frequentes.</h2>
+            </div>
+            <div id="faqList">
+                <div class="faq-item reveal"><button class="faq-btn">O Porteiro substitui o firewall? <i
+                            class="fas fa-plus faq-icon"></i></button>
+                    <div class="faq-body">
+                        <p style="font-size:14px;color:var(--mid);line-height:1.7;font-weight:300;">Não — ele age na
+                            camada HTTP do Nginx, o firewall na camada de rede. Os dois se complementam. Use ambos.</p>
+                    </div>
+                </div>
+                <div class="faq-item reveal" style="transition-delay:0.04s;"><button class="faq-btn">Funciona com IP
+                        dinâmico? <i class="fas fa-plus faq-icon"></i></button>
+                    <div class="faq-body">
+                        <p style="font-size:14px;color:var(--mid);line-height:1.7;font-weight:300;">Sim. O <code
+                                style="font-family:'JetBrains Mono',monospace;font-size:12px;background:var(--gray);padding:2px 6px;border-radius:3px;">porteiro-on</code>
+                            sempre lê o IP atual da sessão SSH. Cada execução atualiza automaticamente.</p>
+                    </div>
+                </div>
+                <div class="faq-item reveal" style="transition-delay:0.08s;"><button class="faq-btn">O Telegram é
+                        obrigatório? <i class="fas fa-plus faq-icon"></i></button>
+                    <div class="faq-body">
+                        <p style="font-size:14px;color:var(--mid);line-height:1.7;font-weight:300;">Não. Deixe as
+                            variáveis em branco no <code
+                                style="font-family:'JetBrains Mono',monospace;font-size:12px;background:var(--gray);padding:2px 6px;border-radius:3px;">porteiro.conf</code>
+                            e as notificações são ignoradas silenciosamente.</p>
+                    </div>
+                </div>
+                <div class="faq-item reveal" style="transition-delay:0.12s;"><button class="faq-btn">Como funciona o
+                        multi-rota? <i class="fas fa-plus faq-icon"></i></button>
+                    <div class="faq-body">
+                        <p style="font-size:14px;color:var(--mid);line-height:1.7;font-weight:300;">Um arquivo <code
+                                style="font-family:'JetBrains Mono',monospace;font-size:12px;background:var(--gray);padding:2px 6px;border-radius:3px;">porteiro_ips.conf</code>
+                            é compartilhado por todos os blocos <code
+                                style="font-family:'JetBrains Mono',monospace;font-size:12px;background:var(--gray);padding:2px 6px;border-radius:3px;">location</code>.
+                            Um comando libera tudo, um bloqueia tudo.</p>
+                    </div>
+                </div>
+                <div class="faq-item reveal" style="transition-delay:0.16s;"><button class="faq-btn">E se eu esquecer a
+                        porta aberta? <i class="fas fa-plus faq-icon"></i></button>
+                    <div class="faq-body">
+                        <p style="font-size:14px;color:var(--mid);line-height:1.7;font-weight:300;">O Auto-Off fecha
+                            tudo após o tempo configurado (padrão: 1 hora). Mesmo que você feche o terminal.</p>
+                    </div>
+                </div>
+                <div class="faq-item reveal" style="transition-delay:0.20s;"><button class="faq-btn">Posso usar sem SSH
+                        remoto? <i class="fas fa-plus faq-icon"></i></button>
+                    <div class="faq-body">
+                        <p style="font-size:14px;color:var(--mid);line-height:1.7;font-weight:300;">Sim: <code
+                                style="font-family:'JetBrains Mono',monospace;font-size:12px;background:var(--gray);padding:2px 6px;border-radius:3px;">sudo SSH_CLIENT='SEU_IP 0 0' porteiro-on</code>.
+                            A variável <code
+                                style="font-family:'JetBrains Mono',monospace;font-size:12px;background:var(--gray);padding:2px 6px;border-radius:3px;">$SSH_CLIENT</code>
+                            normalmente só existe em sessões SSH remotas.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <hr>
+
+    <!-- FOOTER -->
+    <footer>
+        <div class="max-w-6xl mx-auto px-6 py-12">
+            <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-8">
+                <div>
+                    <div class="flex items-center gap-2 mb-4"><span>🚪</span><span
+                            class="font-condensed font-black text-white text-xl uppercase tracking-tight">Porteiro</span>
+                    </div>
+                    <p style="font-size:13px;color:#444;max-width:280px;line-height:1.6;font-weight:300;">Shell Script
+                        para proteger rotas sensíveis no Nginx. Open Source · MIT License.</p>
+                </div>
+                <div>
+                    <p
+                        style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#444;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:12px;">
+                        Carlos Henrique Tourinho Santana</p>
+                    <div style="display:flex;gap:16px;margin-bottom:12px;">
+                        <a href="https://github.com/henriquetourinho" target="_blank"
+                            style="color:#444;font-size:18px;cursor:none;transition:color 0.2s;"
+                            onmouseenter="this.style.color='#00E87A'" onmouseleave="this.style.color='#444'"><i
+                                class="fab fa-github"></i></a>
+                        <a href="https://instagram.com/henrique.ntxa" target="_blank"
+                            style="color:#444;font-size:18px;cursor:none;transition:color 0.2s;"
+                            onmouseenter="this.style.color='#00E87A'" onmouseleave="this.style.color='#444'"><i
+                                class="fab fa-instagram"></i></a>
+                        <a href="mailto:henriquetourinho@riseup.net"
+                            style="color:#444;font-size:18px;cursor:none;transition:color 0.2s;"
+                            onmouseenter="this.style.color='#00E87A'" onmouseleave="this.style.color='#444'"><i
+                                class="fas fa-envelope"></i></a>
+                    </div>
+                    <p style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#333;letter-spacing:0.06em;">
+                        Feito com ☕ em Salvador, Bahia 🌴</p>
+                </div>
+            </div>
+            <div style="border-top:1px solid #1a1a1a;margin-top:40px;padding-top:28px;text-align:center;">
+                <p style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#2a2a2a;letter-spacing:0.06em;">©
+                    2026 CARLOS HENRIQUE TOURINHO SANTANA · MIT LICENSE · NÃO AFILIADO AO NGINX INC.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Custom cursor
+        const dot = document.getElementById('cursorDot');
+        const ring = document.getElementById('cursorRing');
+        let mx = 0, my = 0, rx = 0, ry = 0;
+        document.addEventListener('mousemove', e => {
+            mx = e.clientX; my = e.clientY;
+            dot.style.left = mx + 'px'; dot.style.top = my + 'px';
+        });
+        (function animRing() {
+            rx += (mx - rx) * 0.12; ry += (my - ry) * 0.12;
+            ring.style.left = rx + 'px'; ring.style.top = ry + 'px';
+            requestAnimationFrame(animRing);
+        })();
+        document.querySelectorAll('a, button, .card, .cmd').forEach(el => {
+            el.addEventListener('mouseenter', () => ring.classList.add('hovering'));
+            el.addEventListener('mouseleave', () => ring.classList.remove('hovering'));
+        });
+
+        // Mobile menu
+        document.getElementById('menuBtn').addEventListener('click', () => {
+            document.getElementById('mobileMenu').classList.toggle('open');
+        });
+        document.querySelectorAll('#mobileMenu a').forEach(a => a.addEventListener('click', () => {
+            document.getElementById('mobileMenu').classList.remove('open');
+        }));
+
+        // Reveal on scroll
+        const reveals = document.querySelectorAll('.reveal');
+        const io = new IntersectionObserver(entries => {
+            entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); io.unobserve(e.target); } });
+        }, { threshold: 0.1 });
+        reveals.forEach(r => { io.observe(r); if (r.getBoundingClientRect().top < window.innerHeight) r.classList.add('visible'); });
+
+        // FAQ accordion
+        document.querySelectorAll('.faq-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const item = btn.closest('.faq-item');
+                const isOpen = item.classList.contains('open');
+                document.querySelectorAll('.faq-item').forEach(i => i.classList.remove('open'));
+                if (!isOpen) item.classList.add('open');
+            });
+        });
+
+        // Smooth scroll
+        document.querySelectorAll('a[href^="#"]').forEach(a => {
+            a.addEventListener('click', e => {
+                e.preventDefault();
+                const t = document.querySelector(a.getAttribute('href'));
+                if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
+        });
+    </script>
+</body>
+
+</html>

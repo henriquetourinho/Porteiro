@@ -38,7 +38,7 @@ fi
 
 # --- 1. Fechar o acesso antes de remover ---
 echo "🔒 Fechando acesso e limpando IPs do Nginx..."
-NGINX_CONF="/etc/nginx/pma_ips.conf"
+NGINX_CONF="/etc/nginx/porteiro_ips.conf"
 if [ -f "$NGINX_CONF" ]; then
     echo "" > "$NGINX_CONF"
     systemctl reload nginx 2>/dev/null
@@ -54,7 +54,7 @@ echo "✅ Agendamentos cancelados."
 
 # --- 3. Remover links simbólicos globais ---
 echo "🔗 Removendo comandos globais..."
-for CMD in pma-on pma-off pma-status; do
+for CMD in porteiro-on porteiro-off porteiro-status; do
     if [ -L "/usr/local/bin/$CMD" ]; then
         rm -f "/usr/local/bin/$CMD"
         echo "   ✅ Removido: /usr/local/bin/$CMD"
@@ -73,7 +73,7 @@ else
 fi
 
 # --- 5. Remover arquivo de IPs do Nginx ---
-echo "🗑️  Removendo /etc/nginx/pma_ips.conf..."
+echo "🗑️  Removendo /etc/nginx/porteiro_ips.conf..."
 if [ -f "$NGINX_CONF" ]; then
     rm -f "$NGINX_CONF"
     echo "✅ Arquivo removido."
@@ -120,7 +120,7 @@ if [[ "$ABRIR_NGINX" == "s" || "$ABRIR_NGINX" == "S" ]]; then
     echo ""
     for ROTA in "${ROTAS_ARRAY[@]}"; do
         echo "   location ^~ $ROTA {"
-        echo "       include /etc/nginx/pma_ips.conf;  ← remova"
+        echo "       include /etc/nginx/porteiro_ips.conf;  ← remova"
         echo "       deny all;                          ← remova"
         echo "       ..."
         echo "   }"
@@ -151,7 +151,7 @@ else
     echo ""
     for ROTA in "${ROTAS_ARRAY[@]}"; do
         echo "   location ^~ $ROTA {"
-        echo "       include /etc/nginx/pma_ips.conf;  ← remova"
+        echo "       include /etc/nginx/porteiro_ips.conf;  ← remova"
         echo "       deny all;                          ← remova"
         echo "   }"
         echo ""

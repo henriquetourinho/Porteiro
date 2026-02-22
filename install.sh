@@ -34,7 +34,7 @@ echo "📁 Diretório criado: $INSTALL_DIR"
 
 # --- 3. Definir caminhos globais ---
 CONFIG_FILE="$INSTALL_DIR/porteiro.conf"
-NGINX_CONF="/etc/nginx/pma_ips.conf"
+NGINX_CONF="/etc/nginx/porteiro_ips.conf"
 LOG_FILE="/var/log/porteiro.log"
 
 # ======================================================================
@@ -45,7 +45,7 @@ echo "🛣️  Rotas Protegidas (Multi-rota)"
 echo "=============================="
 echo "   O Porteiro bloqueia rotas sensíveis do Nginx para a internet."
 echo "   Você pode proteger várias rotas ao mesmo tempo — um único"
-echo "   'pma-on' libera todas, um 'pma-off' bloqueia todas."
+echo "   'porteiro-on' libera todas, um 'porteiro-off' bloqueia todas."
 echo ""
 echo "   ⚠️  Para cada rota escolhida aqui, você precisará adicionar"
 echo "   um bloco location no seu Nginx depois (o instalador mostrará"
@@ -102,8 +102,8 @@ echo ""
 # ======================================================================
 echo "📣 Notificações via Telegram (opcional)"
 echo "=============================="
-echo "   Receba um aviso no celular sempre que pma-on, pma-off"
-echo "   ou pma-status for executado."
+echo "   Receba um aviso no celular sempre que porteiro-on, porteiro-off"
+echo "   ou porteiro-status for executado."
 echo ""
 read -p "   Deseja configurar o Telegram agora? (s/N): " QUER_TELEGRAM
 
@@ -157,9 +157,9 @@ DEFAULT_TIME=60
 
 # ── Multi-rota ─────────────────────────────────────────────────────────
 # Rotas protegidas pelo Porteiro (separadas por espaço).
-# O pma-on libera o seu IP em TODAS as rotas listadas de uma vez.
+# O porteiro-on libera o seu IP em TODAS as rotas listadas de uma vez.
 # Para cada rota, adicione um bloco location no seu Nginx com:
-#   include /etc/nginx/pma_ips.conf;
+#   include /etc/nginx/porteiro_ips.conf;
 #   deny all;
 #
 # Exemplos:
@@ -201,25 +201,25 @@ else
     echo "✅ Log já existe: $LOG_FILE"
 fi
 
-# --- 8. Criar o script pma-on ---
-cat << 'EOF' > "$INSTALL_DIR/pma-on"
+# --- 8. Criar o script porteiro-on ---
+cat << 'EOF' > "$INSTALL_DIR/porteiro-on"
 #!/bin/bash
 
 # ======================================================================
-# pma-on — Libera o seu IP em todas as rotas protegidas
-# Uso: pma-on [tempo]
-#   Exemplos: pma-on        (usa o tempo padrão definido em porteiro.conf)
-#             pma-on 30m    (libera por 30 minutos)
-#             pma-on 2h     (libera por 2 horas)
+# porteiro-on — Libera o seu IP em todas as rotas protegidas
+# Uso: porteiro-on [tempo]
+#   Exemplos: porteiro-on        (usa o tempo padrão definido em porteiro.conf)
+#             porteiro-on 30m    (libera por 30 minutos)
+#             porteiro-on 2h     (libera por 2 horas)
 #
-# Multi-rota: o IP é injetado em /etc/nginx/pma_ips.conf — arquivo
+# Multi-rota: o IP é injetado em /etc/nginx/porteiro_ips.conf — arquivo
 # compartilhado por todas as rotas configuradas no Nginx com
-# "include /etc/nginx/pma_ips.conf". Basta adicionar o include em
+# "include /etc/nginx/porteiro_ips.conf". Basta adicionar o include em
 # cada bloco location que quiser proteger.
 # ======================================================================
 
 CONFIG_FILE="/opt/porteiro/porteiro.conf"
-NGINX_CONF="/etc/nginx/pma_ips.conf"
+NGINX_CONF="/etc/nginx/porteiro_ips.conf"
 LOG_FILE="/var/log/porteiro.log"
 
 source "$CONFIG_FILE"
@@ -233,10 +233,10 @@ if [ -z "$MEU_IP" ]; then
     echo ""
     echo "   Este comando deve ser executado dentro de uma sessão SSH remota."
     echo "   Exemplo: conecte ao servidor com 'ssh usuario@ip-do-servidor'"
-    echo "   e então rode 'sudo pma-on'."
+    echo "   e então rode 'sudo porteiro-on'."
     echo ""
     echo "   Se você está no servidor local (sem SSH), defina o IP manualmente:"
-    echo "   sudo SSH_CLIENT='SEU_IP 0 0' pma-on"
+    echo "   sudo SSH_CLIENT='SEU_IP 0 0' porteiro-on"
     echo ""
     exit 1
 fi
@@ -272,7 +272,7 @@ systemctl reload nginx
 
 # --- Cancela agendamentos anteriores e agenda o Auto-Off ---
 for job in $(atq | awk '{print $1}'); do atrm "$job"; done 2>/dev/null
-echo "/usr/local/bin/pma-off > /dev/null 2>&1" | at now + ${TEMPO_MINUTOS} minutes 2>/dev/null
+echo "/usr/local/bin/porteiro-off > /dev/null 2>&1" | at now + ${TEMPO_MINUTOS} minutes 2>/dev/null
 
 # --- Registra no log ---
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
@@ -300,16 +300,16 @@ echo "   Rotas ativas  : $ROTAS"
 echo ""
 EOF
 
-# --- 9. Criar o script pma-off ---
-cat << 'EOF' > "$INSTALL_DIR/pma-off"
+# --- 9. Criar o script porteiro-off ---
+cat << 'EOF' > "$INSTALL_DIR/porteiro-off"
 #!/bin/bash
 
 # ======================================================================
-# pma-off — Revoga o acesso e bloqueia todas as rotas protegidas
+# porteiro-off — Revoga o acesso e bloqueia todas as rotas protegidas
 # ======================================================================
 
 CONFIG_FILE="/opt/porteiro/porteiro.conf"
-NGINX_CONF="/etc/nginx/pma_ips.conf"
+NGINX_CONF="/etc/nginx/porteiro_ips.conf"
 LOG_FILE="/var/log/porteiro.log"
 
 source "$CONFIG_FILE"
@@ -341,16 +341,16 @@ echo "   Rotas isoladas: $ROTAS"
 echo ""
 EOF
 
-# --- 10. Criar o script pma-status ---
-cat << 'EOF' > "$INSTALL_DIR/pma-status"
+# --- 10. Criar o script porteiro-status ---
+cat << 'EOF' > "$INSTALL_DIR/porteiro-status"
 #!/bin/bash
 
 # ======================================================================
-# pma-status — Mostra o estado atual do Porteiro
+# porteiro-status — Mostra o estado atual do Porteiro
 # ======================================================================
 
 CONFIG_FILE="/opt/porteiro/porteiro.conf"
-NGINX_CONF="/etc/nginx/pma_ips.conf"
+NGINX_CONF="/etc/nginx/porteiro_ips.conf"
 LOG_FILE="/var/log/porteiro.log"
 
 source "$CONFIG_FILE"
@@ -407,22 +407,22 @@ fi
 EOF
 
 # --- 11. Permissões corretas ---
-chmod 755 "$INSTALL_DIR/pma-on"
-chmod 755 "$INSTALL_DIR/pma-off"
-chmod 755 "$INSTALL_DIR/pma-status"
+chmod 755 "$INSTALL_DIR/porteiro-on"
+chmod 755 "$INSTALL_DIR/porteiro-off"
+chmod 755 "$INSTALL_DIR/porteiro-status"
 chmod 640 "$CONFIG_FILE"
-chown root:root "$INSTALL_DIR/pma-on"
-chown root:root "$INSTALL_DIR/pma-off"
-chown root:root "$INSTALL_DIR/pma-status"
+chown root:root "$INSTALL_DIR/porteiro-on"
+chown root:root "$INSTALL_DIR/porteiro-off"
+chown root:root "$INSTALL_DIR/porteiro-status"
 
 echo "🔐 Permissões aplicadas (755, root:root)"
 
 # --- 12. Criar links simbólicos globais ---
-ln -sf "$INSTALL_DIR/pma-on"     /usr/local/bin/pma-on
-ln -sf "$INSTALL_DIR/pma-off"    /usr/local/bin/pma-off
-ln -sf "$INSTALL_DIR/pma-status" /usr/local/bin/pma-status
+ln -sf "$INSTALL_DIR/porteiro-on"     /usr/local/bin/porteiro-on
+ln -sf "$INSTALL_DIR/porteiro-off"    /usr/local/bin/porteiro-off
+ln -sf "$INSTALL_DIR/porteiro-status" /usr/local/bin/porteiro-status
 
-echo "🔗 Comandos globais registrados: pma-on | pma-off | pma-status"
+echo "🔗 Comandos globais registrados: porteiro-on | porteiro-off | porteiro-status"
 
 # ======================================================================
 # INSTRUÇÃO FINAL — Blocos Nginx para cada rota configurada
@@ -444,7 +444,7 @@ for ROTA in $ROTAS; do
     echo ""
     echo "    # --- $NOME ---"
     echo "    location ^~ $ROTA {"
-    echo "        include /etc/nginx/pma_ips.conf;"
+    echo "        include /etc/nginx/porteiro_ips.conf;"
     echo "        deny all;"
     echo ""
     echo "        location ~ \\.php\$ {"
@@ -458,15 +458,15 @@ echo ""
 echo "----------------------------------------------------------------------"
 echo ""
 echo "   💡 Todas as rotas acima compartilham o mesmo arquivo de IPs."
-echo "   Um único 'pma-on' libera tudo. Um 'pma-off' bloqueia tudo."
+echo "   Um único 'porteiro-on' libera tudo. Um 'porteiro-off' bloqueia tudo."
 echo ""
 echo "   Após editar o Nginx, rode:"
 echo "   sudo nginx -t && sudo systemctl reload nginx"
 echo ""
 echo "   Comandos disponíveis:"
-echo "   sudo pma-on [tempo]  → Libera seu IP em todas as rotas (ex: sudo pma-on 30m)"
-echo "   sudo pma-off         → Bloqueia todas as rotas imediatamente"
-echo "   sudo pma-status      → Mostra estado atual, rotas e log recente"
+echo "   sudo porteiro-on [tempo]  → Libera seu IP em todas as rotas (ex: sudo porteiro-on 30m)"
+echo "   sudo porteiro-off         → Bloqueia todas as rotas imediatamente"
+echo "   sudo porteiro-status      → Mostra estado atual, rotas e log recente"
 echo ""
 echo "   ⚠️  Use sempre 'sudo' — os comandos precisam de root para recarregar o Nginx."
 echo ""
