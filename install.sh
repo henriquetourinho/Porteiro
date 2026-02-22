@@ -37,9 +37,50 @@ CONFIG_FILE="$INSTALL_DIR/porteiro.conf"
 NGINX_CONF="/etc/nginx/pma_ips.conf"
 LOG_FILE="/var/log/porteiro.log"
 
-# --- 4. Criar arquivo de configuração ---
+# --- 4. Wizard interativo do Telegram ---
+echo ""
+echo "📣 Notificações via Telegram (opcional)"
+echo "   Receba um aviso no celular sempre que pma-on ou pma-off for executado."
+echo ""
+read -p "   Deseja configurar o Telegram agora? (s/N): " QUER_TELEGRAM
+
+TELEGRAM_TOKEN=""
+TELEGRAM_CHAT_ID=""
+
+if [[ "$QUER_TELEGRAM" == "s" || "$QUER_TELEGRAM" == "S" ]]; then
+    echo ""
+    echo "   Como obter as credenciais:"
+    echo "   → TOKEN   : Fale com @BotFather no Telegram e crie um bot"
+    echo "   → CHAT_ID : Fale com @userinfobot no Telegram para descobrir seu ID"
+    echo ""
+    read -p "   Token do bot: " TELEGRAM_TOKEN
+    read -p "   Chat ID:      " TELEGRAM_CHAT_ID
+
+    if [ -n "$TELEGRAM_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+        echo ""
+        echo "   🔔 Testando conexão com o Telegram..."
+        TESTE=$(curl -s "https://api.telegram.org/bot${TELEGRAM_TOKEN}/getMe")
+        if echo "$TESTE" | grep -q '"ok":true'; then
+            echo "   ✅ Bot validado! Notificações ativadas."
+        else
+            echo "   ⚠️  Não foi possível validar o token. Verifique e edite depois em:"
+            echo "   $CONFIG_FILE"
+        fi
+    else
+        echo "   ⚠️  Credenciais em branco. Telegram desativado."
+        TELEGRAM_TOKEN=""
+        TELEGRAM_CHAT_ID=""
+    fi
+else
+    echo "   Telegram desativado. Você pode ativar depois em:"
+    echo "   $CONFIG_FILE"
+fi
+
+echo ""
+
+# --- 5. Criar arquivo de configuração ---
 if [ ! -f "$CONFIG_FILE" ]; then
-    cat << 'EOF' > "$CONFIG_FILE"
+    cat > "$CONFIG_FILE" << EOF
 # ======================================================================
 # PORTEIRO — Arquivo de Configuração
 # ======================================================================
@@ -59,15 +100,15 @@ ROTAS="/phpmyadmin/"
 #   TOKEN     → Fale com @BotFather no Telegram e crie um bot
 #   CHAT_ID   → Fale com @userinfobot no Telegram para descobrir seu ID
 #
-TELEGRAM_TOKEN=""
-TELEGRAM_CHAT_ID=""
+TELEGRAM_TOKEN="${TELEGRAM_TOKEN}"
+TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID}"
 EOF
     echo "✅ Configuração criada: $CONFIG_FILE"
 else
     echo "✅ Configuração já existe: $CONFIG_FILE (mantida)"
 fi
 
-# --- 5. Criar arquivo de IPs do Nginx ---
+# --- 6. Criar arquivo de IPs do Nginx ---
 if [ ! -f "$NGINX_CONF" ]; then
     touch "$NGINX_CONF"
     echo "✅ Arquivo criado: $NGINX_CONF"
@@ -75,7 +116,7 @@ else
     echo "✅ Arquivo já existe: $NGINX_CONF"
 fi
 
-# --- 6. Criar arquivo de log ---
+# --- 7. Criar arquivo de log ---
 if [ ! -f "$LOG_FILE" ]; then
     touch "$LOG_FILE"
     chmod 640 "$LOG_FILE"
@@ -84,7 +125,7 @@ else
     echo "✅ Log já existe: $LOG_FILE"
 fi
 
-# --- 7. Criar o script pma-on ---
+# --- 8. Criar o script pma-on ---
 cat << 'EOF' > "$INSTALL_DIR/pma-on"
 #!/bin/bash
 
@@ -106,8 +147,16 @@ source "$CONFIG_FILE"
 MEU_IP=$(echo "$SSH_CLIENT" | awk '{ print $1 }')
 
 if [ -z "$MEU_IP" ]; then
-    echo "❌ Erro: Não foi possível detectar o IP da conexão SSH."
-    echo "   Certifique-se de estar conectado via SSH antes de rodar este comando."
+    echo ""
+    echo "❌ Erro: IP da sessão SSH não detectado."
+    echo ""
+    echo "   Este comando deve ser executado dentro de uma sessão SSH remota."
+    echo "   Exemplo: conecte ao servidor com 'ssh usuario@ip-do-servidor'"
+    echo "   e então rode 'sudo pma-on'."
+    echo ""
+    echo "   Se você está no servidor local (sem SSH), defina o IP manualmente:"
+    echo "   sudo SSH_CLIENT='SEU_IP 0 0' pma-on"
+    echo ""
     exit 1
 fi
 
@@ -167,7 +216,7 @@ echo "   Auto-Off em   : ${TEMPO_MINUTOS} minuto(s)"
 echo ""
 EOF
 
-# --- 8. Criar o script pma-off ---
+# --- 9. Criar o script pma-off ---
 cat << 'EOF' > "$INSTALL_DIR/pma-off"
 #!/bin/bash
 
@@ -206,7 +255,7 @@ echo "   O phpMyAdmin está isolado da internet."
 echo ""
 EOF
 
-# --- 9. Criar o script pma-status ---
+# --- 10. Criar o script pma-status ---
 cat << 'EOF' > "$INSTALL_DIR/pma-status"
 #!/bin/bash
 
@@ -250,32 +299,35 @@ fi
 echo ""
 EOF
 
-# --- 10. Permissões corretas ---
-chmod 750 "$INSTALL_DIR/pma-on"
-chmod 750 "$INSTALL_DIR/pma-off"
-chmod 750 "$INSTALL_DIR/pma-status"
+# --- 11. Permissões corretas ---
+# 755 nos scripts para que qualquer usuário possa executar (root ainda é necessário para systemctl)
+chmod 755 "$INSTALL_DIR/pma-on"
+chmod 755 "$INSTALL_DIR/pma-off"
+chmod 755 "$INSTALL_DIR/pma-status"
 chmod 640 "$CONFIG_FILE"
 chown root:root "$INSTALL_DIR/pma-on"
 chown root:root "$INSTALL_DIR/pma-off"
 chown root:root "$INSTALL_DIR/pma-status"
 
-echo "🔐 Permissões aplicadas (750, root:root)"
+echo "🔐 Permissões aplicadas (755, root:root)"
 
-# --- 11. Criar links simbólicos globais ---
+# --- 12. Criar links simbólicos globais ---
 ln -sf "$INSTALL_DIR/pma-on"     /usr/local/bin/pma-on
 ln -sf "$INSTALL_DIR/pma-off"    /usr/local/bin/pma-off
 ln -sf "$INSTALL_DIR/pma-status" /usr/local/bin/pma-status
 
 echo "🔗 Comandos globais registrados: pma-on | pma-off | pma-status"
 
-# --- 12. Instrução final ---
+# --- 13. Instrução final ---
 echo ""
 echo "=============================="
 echo "🚪 Porteiro v2.0 instalado com sucesso!"
 echo ""
 echo "⚙️  Configure em: /opt/porteiro/porteiro.conf"
 echo "   → Ajuste o tempo padrão e as rotas protegidas"
+if [ -z "$TELEGRAM_TOKEN" ]; then
 echo "   → Ative o Telegram adicionando TOKEN e CHAT_ID (opcional)"
+fi
 echo ""
 echo "⚠️  PASSO FINAL (manual): Adicione o bloco abaixo no seu Nginx."
 echo "   Arquivo sugerido: /etc/nginx/sites-available/default"
@@ -301,7 +353,9 @@ echo "   Após editar o Nginx, rode:"
 echo "   sudo nginx -t && sudo systemctl reload nginx"
 echo ""
 echo "   Comandos disponíveis:"
-echo "   pma-on [tempo]  → Abre a porta (ex: pma-on | pma-on 30m | pma-on 2h)"
-echo "   pma-off         → Fecha a porta imediatamente"
-echo "   pma-status      → Mostra estado atual e log recente"
+echo "   sudo pma-on [tempo]  → Abre a porta (ex: sudo pma-on | sudo pma-on 30m | sudo pma-on 2h)"
+echo "   sudo pma-off         → Fecha a porta imediatamente"
+echo "   sudo pma-status      → Mostra estado atual e log recente"
+echo ""
+echo "   ⚠️  Use sempre 'sudo' — os comandos precisam de root para recarregar o Nginx."
 echo ""

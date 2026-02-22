@@ -78,8 +78,9 @@ O instalador cuida de tudo automaticamente:
 - Cria o arquivo de configuração `/opt/porteiro/porteiro.conf`
 - Cria o arquivo `/etc/nginx/pma_ips.conf`
 - Cria o log em `/var/log/porteiro.log`
-- Aplica permissões corretas (`750`, `root:root`)
+- Aplica permissões corretas (`755`, `root:root`)
 - Registra os comandos globais `pma-on`, `pma-off` e `pma-status`
+- **Pergunta interativamente** se deseja configurar o Telegram (valida o token na hora)
 
 ### 3. Configurar o Nginx (único passo manual)
 
@@ -110,7 +111,9 @@ A partir daqui, `/phpmyadmin/` retorna **403 Forbidden** para o mundo inteiro. O
 
 ### 4. (Opcional) Configurar Telegram
 
-Edite o arquivo de configuração:
+O instalador já pergunta se você quer configurar o Telegram durante a instalação e valida o token automaticamente.
+
+Se quiser ativar depois, edite o arquivo de configuração:
 
 ```bash
 sudo nano /opt/porteiro/porteiro.conf
@@ -127,7 +130,13 @@ TELEGRAM_CHAT_ID="seu_chat_id_aqui"
 - **TOKEN** → Abra o Telegram, fale com `@BotFather` e crie um novo bot. Ele te entrega o token.
 - **CHAT_ID** → Fale com `@userinfobot` no Telegram. Ele responde com seu ID numérico.
 
-Salve o arquivo. A partir do próximo `pma-on` ou `pma-off`, você receberá notificações no celular.
+**Testar manualmente:**
+```bash
+curl "https://api.telegram.org/botSEU_TOKEN/getMe"
+```
+Se retornar `"ok":true`, o token é válido.
+
+A partir do próximo `pma-on`, `pma-off` ou `pma-status`, você receberá notificações no celular.
 
 ---
 
@@ -136,6 +145,7 @@ Salve o arquivo. A partir do próximo `pma-on` ou `pma-off`, você receberá not
 ```
 porteiro/
 ├── install.sh        # Instalador automático (rode isso e acabou)
+├── uninstall.sh      # Desinstalador (remove tudo limpo)
 ├── README.md         # Este arquivo
 └── LICENSE           # MIT
 
@@ -165,9 +175,9 @@ No dia a dia, é só isso:
 ### Abrir o acesso
 
 ```bash
-pma-on          # Usa o tempo padrão (porteiro.conf)
-pma-on 30m      # Libera por 30 minutos
-pma-on 2h       # Libera por 2 horas
+sudo pma-on          # Usa o tempo padrão (porteiro.conf)
+sudo pma-on 30m      # Libera por 30 minutos
+sudo pma-on 2h       # Libera por 2 horas
 ```
 
 Saída esperada:
@@ -181,7 +191,7 @@ Saída esperada:
 ### Fechar o acesso manualmente
 
 ```bash
-pma-off
+sudo pma-off
 ```
 
 Saída esperada:
@@ -193,7 +203,7 @@ Saída esperada:
 ### Verificar o status
 
 ```bash
-pma-status
+sudo pma-status
 ```
 
 Saída esperada:
@@ -322,7 +332,6 @@ echo "allow IP_DO_SEU_ESCRITORIO;" >> "$NGINX_CONF"
 ## 🚀 Roadmap (v3.0) — Próximas Melhorias
 
 - **Suporte a Apache** — Versão equivalente para `.htaccess`
-- **`uninstall.sh`** — Remove tudo limpo do servidor
 - **Tempo via argumento no pma-off** — `pma-off` com delay opcional
 - **Rotação de log** — Integração com `logrotate`
 - **Suporte a IPv6** — Para servidores modernos
@@ -357,6 +366,16 @@ O Auto-Off cuida disso. Após o tempo configurado, o acesso é bloqueado automat
 ### O Telegram é obrigatório?
 
 Não. Deixe `TELEGRAM_TOKEN` e `TELEGRAM_CHAT_ID` em branco no `porteiro.conf` e as notificações são ignoradas silenciosamente.
+
+### Posso rodar pma-on direto no servidor (sem SSH remoto)?
+
+O `pma-on` depende da variável `$SSH_CLIENT`, que só existe em sessões SSH remotas. Se estiver no servidor local (console físico ou terminal direto), use:
+
+```bash
+sudo SSH_CLIENT='SEU_IP 0 0' pma-on
+```
+
+Substituindo `SEU_IP` pelo seu IP real.
 
 ### Posso usar com Apache?
 
