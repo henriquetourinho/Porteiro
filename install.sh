@@ -201,6 +201,19 @@ else
     echo "✅ Log já existe: $LOG_FILE"
 fi
 
+# --- 7b. Configurar logrotate ---
+cat > /etc/logrotate.d/porteiro << 'LOGROTATE'
+/var/log/porteiro.log {
+    monthly
+    rotate 6
+    compress
+    missingok
+    notifempty
+    create 640 root root
+}
+LOGROTATE
+echo "✅ Logrotate configurado: /etc/logrotate.d/porteiro"
+
 # --- 8. Criar o script porteiro-on ---
 cat << 'EOF' > "$INSTALL_DIR/porteiro-on"
 #!/bin/bash
@@ -266,13 +279,22 @@ if [ -n "$TEMPO_ARG" ]; then
     esac
 fi
 
-# --- Injeta o IP no arquivo compartilhado do Nginx ---
-echo "allow $MEU_IP;" > "$NGINX_CONF"
-systemctl reload nginx
+# --- Injeta o IP no arquivo compartilhado do Nginx (multi-IP) ---
+# Adiciona o IP apenas se ainda não estiver na lista
+grep -q "allow $MEU_IP;" "$NGINX_CONF" 2>/dev/null || echo "allow $MEU_IP;" >> "$NGINX_CONF"
 
-# --- Cancela agendamentos anteriores e agenda o Auto-Off ---
-for job in $(atq | awk '{print $1}'); do atrm "$job"; done 2>/dev/null
-echo "/usr/local/bin/porteiro-off > /dev/null 2>&1" | at now + ${TEMPO_MINUTOS} minutes 2>/dev/null
+# --- Valida a config do Nginx antes de recarregar ---
+if nginx -t 2>/dev/null; then
+    systemctl reload nginx
+else
+    echo "❌ Erro na configuração do Nginx. Acesso NÃO foi liberado."
+    echo "   Verifique: sudo nginx -t"
+    exit 1
+fi
+
+# --- Cancela apenas os agendamentos do Porteiro e agenda o novo Auto-Off ---
+atq 2>/dev/null | grep -i "porteiro" | awk '{print $1}' | xargs -r atrm 2>/dev/null
+echo "/usr/local/bin/porteiro-off > /dev/null 2>&1 #porteiro" | at now + ${TEMPO_MINUTOS} minutes 2>/dev/null
 
 # --- Registra no log ---
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
@@ -316,7 +338,17 @@ source "$CONFIG_FILE"
 
 # --- Limpa o arquivo de IPs compartilhado ---
 echo "" > "$NGINX_CONF"
-systemctl reload nginx
+
+# --- Valida config do Nginx antes de recarregar ---
+if nginx -t 2>/dev/null; then
+    systemctl reload nginx
+else
+    echo "❌ Erro na configuração do Nginx. Verifique: sudo nginx -t"
+    exit 1
+fi
+
+# --- Cancela apenas agendamentos do Porteiro ---
+atq 2>/dev/null | grep -i "porteiro" | awk '{print $1}' | xargs -r atrm 2>/dev/null
 
 # --- Registra no log ---
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')

@@ -41,15 +41,19 @@ echo "🔒 Fechando acesso e limpando IPs do Nginx..."
 NGINX_CONF="/etc/nginx/porteiro_ips.conf"
 if [ -f "$NGINX_CONF" ]; then
     echo "" > "$NGINX_CONF"
-    systemctl reload nginx 2>/dev/null
-    echo "✅ Nginx limpo e recarregado."
+    if nginx -t 2>/dev/null; then
+        systemctl reload nginx 2>/dev/null
+        echo "✅ Nginx limpo e recarregado."
+    else
+        echo "   ⚠️  nginx -t falhou. Recarregue manualmente após corrigir a config."
+    fi
 else
     echo "   Arquivo $NGINX_CONF não encontrado. Pulando."
 fi
 
-# --- 2. Cancelar agendamentos do at ---
+# --- 2. Cancelar agendamentos do Auto-Off ---
 echo "⏱️  Cancelando agendamentos do Auto-Off..."
-for job in $(atq | awk '{print $1}'); do atrm "$job"; done 2>/dev/null
+atq 2>/dev/null | grep -i "porteiro" | awk '{print $1}' | xargs -r atrm 2>/dev/null
 echo "✅ Agendamentos cancelados."
 
 # --- 3. Remover links simbólicos globais ---
@@ -70,6 +74,12 @@ if [ -d "/opt/porteiro" ]; then
     echo "✅ Diretório removido."
 else
     echo "   ⚠️  Diretório /opt/porteiro não encontrado."
+fi
+
+# --- 4b. Remover logrotate ---
+if [ -f "/etc/logrotate.d/porteiro" ]; then
+    rm -f "/etc/logrotate.d/porteiro"
+    echo "✅ Logrotate removido."
 fi
 
 # --- 5. Remover arquivo de IPs do Nginx ---
@@ -121,7 +131,7 @@ if [[ "$ABRIR_NGINX" == "s" || "$ABRIR_NGINX" == "S" ]]; then
     for ROTA in "${ROTAS_ARRAY[@]}"; do
         echo "   location ^~ $ROTA {"
         echo "       include /etc/nginx/porteiro_ips.conf;  ← remova"
-        echo "       deny all;                          ← remova"
+        echo "       deny all;                               ← remova"
         echo "       ..."
         echo "   }"
         echo ""
@@ -152,7 +162,7 @@ else
     for ROTA in "${ROTAS_ARRAY[@]}"; do
         echo "   location ^~ $ROTA {"
         echo "       include /etc/nginx/porteiro_ips.conf;  ← remova"
-        echo "       deny all;                          ← remova"
+        echo "       deny all;                               ← remova"
         echo "   }"
         echo ""
     done

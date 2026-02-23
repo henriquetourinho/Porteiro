@@ -32,11 +32,13 @@ A lógica é simples:
 - **🔍 Detecção Automática de IP:** Lê seu IP direto da sessão SSH via `$SSH_CLIENT`. Sem digitar nada.
 - **🌍 Isolamento Total:** Bloqueia as rotas com `deny all` para o resto da internet. O `/phpmyadmin/` simplesmente não existe.
 - **⚡ Liberação Instantânea:** Um comando (`sudo porteiro-on`) e seu navegador já acessa. Nginx recarrega na hora.
+- **👥 Multi-IP:** Vários admins podem abrir acesso simultaneamente. Cada `porteiro-on` adiciona o IP sem sobrescrever os anteriores.
 - **⏱️ Tempo Configurável:** `sudo porteiro-on 30m`, `sudo porteiro-on 2h` — você define quanto tempo quer de acesso por sessão.
-- **⏱️ Auto-Off Inteligente:** Fecha automaticamente quando o tempo acabar. Anti-esquecimento nativo.
+- **⏱️ Auto-Off Inteligente:** Fecha automaticamente quando o tempo acabar. O agendamento é marcado com tag `#porteiro` — nunca cancela jobs de outros serviços do servidor.
 - **🔒 Fechamento Manual:** Terminou antes? `sudo porteiro-off` tranca na hora, sem esperar o timer.
-- **📊 Status em Tempo Real:** `sudo porteiro-status` mostra se a porta está aberta, qual IP está ativo, quais rotas estão protegidas e o log recente — e notifica via Telegram se configurado.
-- **📋 Log de Auditoria:** Cada abertura e fechamento é registrado em `/var/log/porteiro.log` com timestamp, IP, rotas e hostname.
+- **🛡️ Nginx Sempre Validado:** Antes de qualquer `reload`, o Porteiro roda `nginx -t`. Se a configuração estiver quebrada, ele avisa e aborta — nunca derruba o servidor.
+- **📊 Status em Tempo Real:** `sudo porteiro-status` mostra estado, IPs ativos, rotas protegidas e log recente — com notificação Telegram se configurado.
+- **📋 Log de Auditoria com Rotação:** Cada evento registrado em `/var/log/porteiro.log`. Logrotate configurado automaticamente — o log nunca cresce infinito em produção.
 - **📣 Notificação via Telegram:** Receba uma mensagem no celular sempre que a porta abrir, fechar ou o status for consultado. Totalmente opcional — configurado com wizard durante a instalação.
 - **🛣️ Multi-rota:** Proteja `/phpmyadmin/`, `/adminer/`, `/wp-admin/` ou qualquer rota sensível. Um `porteiro-on` libera tudo, um `porteiro-off` bloqueia tudo. Rotas escolhidas interativamente durante a instalação.
 - **🪶 Levíssimo:** Shell Script puro. Zero dependências externas. Funciona até em VPS de R$15/mês.
@@ -115,6 +117,7 @@ Após os wizards, o instalador também cuida de:
 - Criar o arquivo de configuração `/opt/porteiro/porteiro.conf` com as rotas escolhidas
 - Criar o arquivo `/etc/nginx/porteiro_ips.conf`
 - Criar o log em `/var/log/porteiro.log`
+- Configurar o **logrotate** em `/etc/logrotate.d/porteiro` (rotação mensal, 6 meses)
 - Aplicar permissões corretas (`755`, `root:root`)
 - Registrar os comandos globais `porteiro-on`, `porteiro-off` e `porteiro-status`
 - Gerar os **blocos Nginx prontos** para cada rota escolhida
@@ -208,9 +211,9 @@ porteiro/
 
 # Após instalar, os scripts ficam em:
 /opt/porteiro/
-├── porteiro-on            # Libera seu IP em todas as rotas protegidas
-├── porteiro-off           # Bloqueia todas as rotas para todo mundo
-├── porteiro-status        # Mostra estado, rotas ativas e log recente
+├── porteiro-on       # Libera seu IP em todas as rotas protegidas
+├── porteiro-off      # Bloqueia todas as rotas para todo mundo
+├── porteiro-status   # Mostra estado, rotas ativas e log recente
 └── porteiro.conf     # Configurações (tempo, rotas, Telegram)
 
 # Comandos globais registrados em:
@@ -219,8 +222,9 @@ porteiro/
 /usr/local/bin/porteiro-status
 
 # Arquivos gerados no servidor:
-/etc/nginx/porteiro_ips.conf   # IP injetado dinamicamente (compartilhado por todas as rotas)
-/var/log/porteiro.log     # Log de auditoria
+/etc/nginx/porteiro_ips.conf      # IPs autorizados (compartilhado por todas as rotas)
+/var/log/porteiro.log             # Log de auditoria
+/etc/logrotate.d/porteiro         # Rotação automática do log (mensal, 6 meses)
 ```
 
 ---
@@ -290,15 +294,17 @@ Saída esperada:
       ↓
 [Processa argumento de tempo (ou usa DEFAULT_TIME do porteiro.conf)]
       ↓
-[Injeta "allow SEU_IP;" em /etc/nginx/porteiro_ips.conf]
+[Verifica se IP já está na lista — adiciona apenas se não estiver (multi-IP)]
       ↓
-[Nginx recarrega — todas as rotas com include porteiro_ips.conf liberam seu IP]
+[nginx -t valida a configuração antes de qualquer reload]
+      ↓
+[Nginx recarrega — todas as rotas com include porteiro_ips.conf liberam o IP]
       ↓
 [Registra no /var/log/porteiro.log com IP e rotas]
       ↓
 [Envia notificação no Telegram com IP, rotas e duração (se configurado)]
       ↓
-[at agenda porteiro-off para daqui X minutos]
+[at agenda porteiro-off com tag #porteiro — sem afetar outros jobs do servidor]
       ↓
 [Tempo esgotado: porteiro_ips.conf é limpo → 403 em todas as rotas de novo]
 ```
@@ -314,9 +320,13 @@ A mágica do multi-rota está no arquivo `/etc/nginx/porteiro_ips.conf` — comp
 | Rotas sensíveis expostas na internet | ✅ Sim (vulnerável) | ❌ Não (403 pra todos) |
 | Ataques de força bruta | ✅ Possível | ❌ Impossível (porta fechada) |
 | Acesso do administrador | ✅ Sim | ✅ Sim (via SSH + porteiro-on) |
+| Múltiplos admins simultâneos | ❌ Conflito de IPs | ✅ Multi-IP nativo |
 | Esqueceu a porta aberta | ✅ Problema seu | ❌ Auto-Off resolve |
+| Jobs externos cancelados pelo script | ✅ Risco real | ❌ Tag #porteiro protege |
+| Nginx derrubado por config quebrada | ✅ Possível | ❌ nginx -t valida antes |
 | Controle do tempo de acesso | ❌ Não | ✅ porteiro-on 30m / 2h |
 | Proteger múltiplas rotas | ❌ Configuração manual | ✅ Multi-rota com wizard |
+| Log cresce infinito em produção | ✅ Problema | ❌ Logrotate automático |
 | Auditoria de acessos | ❌ Não | ✅ /var/log/porteiro.log |
 | Alerta no celular | ❌ Não | ✅ Telegram (opcional) |
 | Configuração necessária | — | ~5 minutos |
@@ -329,13 +339,17 @@ A mágica do multi-rota está no arquivo `/etc/nginx/porteiro_ips.conf` — comp
 ### Proteção ✅
 - [x] Rotas inacessíveis por padrão (403)
 - [x] Liberação apenas para IP autenticado via SSH
+- [x] Multi-IP: vários admins simultâneos sem sobrescrever
 - [x] Auto-Off configurável (anti-esquecimento)
+- [x] Agendamento `at` marcado com `#porteiro` — nunca cancela jobs externos
 - [x] Fechamento manual disponível
+- [x] Nginx validado com `nginx -t` antes de qualquer reload
 - [x] Sem credenciais armazenadas em disco
 - [x] Multi-rota com arquivo compartilhado
 
 ### Monitoramento ✅
 - [x] Log de auditoria com IP e rotas em `/var/log/porteiro.log`
+- [x] Logrotate configurado automaticamente (mensal, 6 meses, comprimido)
 - [x] `porteiro-status` com estado e rotas em tempo real
 - [x] Notificação Telegram no `porteiro-on`, `porteiro-off` e `porteiro-status` (opcional)
 
@@ -417,9 +431,10 @@ sudo SSH_CLIENT='SEU_IP 0 0' porteiro-on
 ## 🚀 Roadmap (v3.0) — Próximas Melhorias
 
 - **Suporte a Apache** — Versão equivalente para `.htaccess`
-- **Rotação de log** — Integração com `logrotate`
 - **Suporte a IPv6** — Para servidores modernos
 - **`porteiro-off` com delay** — `porteiro-off 10m` fecha em 10 minutos
+- **`porteiro-list`** — Listar todos os IPs ativos com tempo restante de cada um
+- **`porteiro-revoke IP`** — Revogar acesso de um IP específico sem fechar todos
 
 ---
 
@@ -442,11 +457,23 @@ Não — ele age na camada do Nginx (HTTP), enquanto o firewall age na camada de
 
 ### Funciona se meu IP residencial muda toda hora?
 
-Sim! O `porteiro-on` sempre lê o IP atual da sessão SSH ativa. Cada vez que você rodar, ele atualiza automaticamente.
+Sim! O `porteiro-on` sempre lê o IP atual da sessão SSH ativa. Cada vez que você rodar, ele adiciona o novo IP sem remover os anteriores.
+
+### Dois admins podem abrir acesso ao mesmo tempo?
+
+Sim! Cada `porteiro-on` adiciona o IP ao arquivo sem sobrescrever os já existentes. O `porteiro-off` limpa tudo de uma vez.
 
 ### E se eu fechar o terminal antes de rodar porteiro-off?
 
 O Auto-Off cuida disso. Após o tempo configurado, o acesso é bloqueado automaticamente em todas as rotas.
+
+### O `porteiro-on` pode cancelar jobs de outros serviços do servidor?
+
+Não. O agendamento é criado com a tag `#porteiro` e o cancelamento filtra apenas por ela — outros jobs do `at` ficam intactos.
+
+### O que acontece se o Nginx estiver com a config quebrada?
+
+O Porteiro roda `nginx -t` antes de qualquer `reload`. Se detectar erro, aborta com mensagem clara e não toca no servidor.
 
 ### O Telegram é obrigatório?
 
