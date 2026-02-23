@@ -29,19 +29,19 @@ A lógica é simples:
 
 ## ✨ Funcionalidades
 
-- **🔍 Detecção Automática de IP:** Lê seu IP direto da sessão SSH via `$SSH_CLIENT`. Sem digitar nada.
+- **🔍 Detecção Automática de IP:** Lê seu IP via `$SSH_CLIENT`. Fallback automático para `who am i` — funciona em tmux, screen e sudo su.
 - **🌍 Isolamento Total:** Bloqueia as rotas com `deny all` para o resto da internet. O `/phpmyadmin/` simplesmente não existe.
 - **⚡ Liberação Instantânea:** Um comando (`sudo porteiro-on`) e seu navegador já acessa. Nginx recarrega na hora.
 - **👥 Multi-IP:** Vários admins podem abrir acesso simultaneamente. Cada `porteiro-on` adiciona o IP sem sobrescrever os anteriores.
-- **⏱️ Tempo Configurável:** `sudo porteiro-on 30m`, `sudo porteiro-on 2h` — você define quanto tempo quer de acesso por sessão.
-- **⏱️ Auto-Off Inteligente:** Fecha automaticamente quando o tempo acabar. O agendamento é marcado com tag `#porteiro` — nunca cancela jobs de outros serviços do servidor.
+- **⏱️ Tempo Configurável:** `sudo porteiro-on 30`, `sudo porteiro-on 30m`, `sudo porteiro-on 2h` — número puro é tratado como minutos. Formato inválido é rejeitado com mensagem clara.
+- **⏱️ Auto-Off Individual por IP:** Cada admin tem seu próprio timer independente. Se dois admins abrirem acesso, o Auto-Off de um não afeta o outro. Tag `#porteiro-IP` garante que nunca cancela jobs externos do servidor.
 - **🔒 Fechamento Manual:** Terminou antes? `sudo porteiro-off` tranca na hora, sem esperar o timer.
 - **🛡️ Nginx Sempre Validado:** Antes de qualquer `reload`, o Porteiro roda `nginx -t`. Se a configuração estiver quebrada, ele avisa e aborta — nunca derruba o servidor.
 - **📊 Status em Tempo Real:** `sudo porteiro-status` mostra estado, IPs ativos, rotas protegidas e log recente — com notificação Telegram se configurado.
 - **📋 Log de Auditoria com Rotação:** Cada evento registrado em `/var/log/porteiro.log`. Logrotate configurado automaticamente — o log nunca cresce infinito em produção.
 - **📣 Notificação via Telegram:** Receba uma mensagem no celular sempre que a porta abrir, fechar ou o status for consultado. Totalmente opcional — configurado com wizard durante a instalação.
 - **📋 Listagem de IPs Ativos:** `sudo porteiro-list` exibe todos os IPs autorizados no momento, com data e hora de abertura de cada um. Lê direto do arquivo e do log — sem banco de dados.
-- **🚫 Revogação Individual:** `sudo porteiro-revoke <IP>` remove o acesso de um IP específico sem afetar os demais. Cirúrgico, validado e registrado no log.
+- **🚫 Revogação Individual:** `sudo porteiro-revoke <IP>` remove o acesso de um IP específico sem afetar os demais. Valida formato IPv4, escapa o input antes do `sed` e registra `REVOGADO` no log.
 - **🛣️ Multi-rota:** Proteja `/phpmyadmin/`, `/adminer/`, `/wp-admin/` ou qualquer rota sensível. Um `porteiro-on` libera tudo, um `porteiro-off` bloqueia tudo. Rotas escolhidas interativamente durante a instalação.
 - **🪶 Levíssimo:** Shell Script puro. Zero dependências externas. Funciona até em VPS de R$15/mês.
 
@@ -114,13 +114,14 @@ O instalador guia você por dois wizards interativos antes de criar qualquer arq
 ```
 
 Após os wizards, o instalador também cuida de:
-- Instalar o `at` (se não estiver presente)
+- Verificar se o **Nginx está instalado** — alerta antes de continuar se não encontrar
+- Instalar o `at` (se não estiver presente) — suporta `apt-get`, `dnf` e `yum`
 - Criar o diretório `/opt/porteiro/` com os scripts
 - Criar o arquivo de configuração `/opt/porteiro/porteiro.conf` com as rotas escolhidas
-- Criar o arquivo `/etc/nginx/porteiro_ips.conf`
-- Criar o log em `/var/log/porteiro.log`
+- Criar o arquivo `/etc/nginx/porteiro_ips.conf` com permissões `640` e `root:root`
+- Criar o log em `/var/log/porteiro.log` com permissões `640` e `root:root`
 - Configurar o **logrotate** em `/etc/logrotate.d/porteiro` (rotação mensal, 6 meses)
-- Aplicar permissões corretas (`755`, `root:root`)
+- Aplicar permissões `755` e `root:root` em todos os scripts e no `porteiro.conf`
 - Registrar os comandos globais: `porteiro-on`, `porteiro-off`, `porteiro-status`, `porteiro-list` e `porteiro-revoke`
 - Gerar os **blocos Nginx prontos** para cada rota escolhida
 
@@ -195,8 +196,9 @@ sudo bash uninstall.sh
 
 O desinstalador também é interativo:
 - Fecha o acesso e limpa o Nginx antes de remover qualquer coisa
-- Cancela agendamentos do Auto-Off
+- Cancela agendamentos do Auto-Off (todos os timers individuais por IP)
 - Remove scripts, links simbólicos e arquivos de configuração
+- Remove o logrotate em `/etc/logrotate.d/porteiro`
 - Pergunta se deseja remover o log de auditoria
 - Lista as rotas que estavam protegidas e oferece abrir o Nginx para remover os blocos manualmente
 
@@ -243,6 +245,7 @@ No dia a dia, é só isso:
 
 ```bash
 sudo porteiro-on          # Usa o tempo padrão (porteiro.conf)
+sudo porteiro-on 30       # Libera por 30 minutos (número puro)
 sudo porteiro-on 30m      # Libera por 30 minutos
 sudo porteiro-on 2h       # Libera por 2 horas
 ```
@@ -349,9 +352,9 @@ Saída esperada:
       ↓
 [Envia notificação no Telegram com IP, rotas e duração (se configurado)]
       ↓
-[at agenda porteiro-off com tag #porteiro — sem afetar outros jobs do servidor]
+[at agenda porteiro-revoke <SEU_IP> com tag #porteiro-IP — timer individual]
       ↓
-[Tempo esgotado: porteiro_ips.conf é limpo → 403 em todas as rotas de novo]
+[Tempo esgotado: só seu IP é revogado — outros admins continuam ativos]
 ```
 
 A mágica do multi-rota está no arquivo `/etc/nginx/porteiro_ips.conf` — compartilhado por todos os blocos `location`. Alterar esse arquivo uma vez afeta todas as rotas simultaneamente. O Porteiro nunca toca diretamente na configuração do Nginx.
@@ -387,12 +390,18 @@ A mágica do multi-rota está no arquivo `/etc/nginx/porteiro_ips.conf` — comp
 - [x] Rotas inacessíveis por padrão (403)
 - [x] Liberação apenas para IP autenticado via SSH
 - [x] Multi-IP: vários admins simultâneos sem sobrescrever
-- [x] Auto-Off configurável (anti-esquecimento)
-- [x] Agendamento `at` marcado com `#porteiro` — nunca cancela jobs externos
-- [x] Fechamento manual disponível
+- [x] `^allow` ancorado — imune a match em linhas comentadas
+- [x] Timer individual por IP — Auto-Off de um admin não afeta os outros
+- [x] Jobs `at` identificados por tag `#porteiro-IP` e inspecionados via `at -c` — nunca afeta jobs externos
+- [x] Validação de formato e faixa IPv4 (0-255) antes de qualquer operação no `porteiro-revoke`
+- [x] Input escapado no `sed` — proteção contra regex injection
+- [x] Fechamento manual disponível (`porteiro-off` fecha tudo de uma vez)
 - [x] Nginx validado com `nginx -t` antes de qualquer reload
+- [x] Verificação de Nginx instalado no início da instalação
 - [x] Sem credenciais armazenadas em disco
-- [x] Multi-rota com arquivo compartilhado
+- [x] Multi-rota com arquivo compartilhado — espaços normalizados com `xargs`
+- [x] Permissões explícitas em todos os arquivos: scripts `755`, config/log/nginx_conf `640`, tudo `root:root`
+- [x] Compatível com qualquer sistema Unix (sem `grep -P`, POSIX puro)
 
 ### Monitoramento ✅
 - [x] Log de auditoria com IP e rotas em `/var/log/porteiro.log`
@@ -411,9 +420,11 @@ A mágica do multi-rota está no arquivo `/etc/nginx/porteiro_ips.conf` — comp
 
 ### Compatibilidade ✅
 - [x] Ubuntu / Debian
-- [x] Qualquer versão do PHP-FPM (ajuste o socket)
+- [x] Rocky Linux / AlmaLinux / CentOS (via `dnf` / `yum`)
+- [x] Qualquer versão do PHP-FPM (socket comentado com opções 8.1/8.2/8.3)
 - [x] Nginx (qualquer versão recente)
 - [x] Qualquer rota sensível
+- [x] POSIX puro — sem `grep -P`, funciona em Alpine, BusyBox e macOS
 
 ---
 
@@ -463,6 +474,7 @@ sudo nginx -t && sudo systemctl reload nginx
 Edite `DEFAULT_TIME` no `porteiro.conf` ou passe direto no comando:
 
 ```bash
+sudo porteiro-on 30    # 30 minutos (número puro)
 sudo porteiro-on 30m   # 30 minutos
 sudo porteiro-on 2h    # 2 horas
 ```
@@ -481,8 +493,10 @@ sudo SSH_CLIENT='SEU_IP 0 0' porteiro-on
 
 - **Suporte a Apache** — Versão equivalente para `.htaccess`
 - **Suporte a IPv6** — Para servidores modernos
+- **`porteiro-off --self`** — Revoga apenas o IP da sessão atual, sem afetar outros admins
 - **`porteiro-off` com delay** — `porteiro-off 10m` fecha em 10 minutos
-- **Timer individual por IP** — cada admin com seu próprio Auto-Off independente
+- **`porteiro-list` com tempo restante** — mostrar quando cada IP expira
+- **Múltiplos ambientes** — suporte a `/etc/nginx/porteiro/<nome>.conf` para múltiplos domínios
 
 ---
 
@@ -498,6 +512,18 @@ O **Porteiro** é uma ferramenta de segurança legítima desenvolvida para admin
 ---
 
 ## 🔥 FAQ
+
+### O Auto-Off de um admin fecha o acesso dos outros?
+
+Não. Cada `porteiro-on` agenda um `porteiro-revoke <IP>` com tag `#porteiro-IP` específica para aquele IP. Quando o timer expira, só aquele IP é revogado — os demais continuam ativos com seus próprios timers.
+
+### O `porteiro-revoke` aceita qualquer argumento?
+
+Não. Antes de qualquer operação, o script valida que o argumento é um IPv4 válido (`[0-9]{1,3}.[0-9]{1,3}...`). Argumentos maliciosos são rejeitados com mensagem de erro.
+
+### Quais formatos de tempo o `porteiro-on` aceita?
+
+`30` (minutos), `30m`, `2h`, `1hora`, `90min`. Número puro é tratado como minutos. Qualquer formato inválido é rejeitado com mensagem de erro antes de tocar no servidor.
 
 ### Como vejo quem está com acesso no momento?
 

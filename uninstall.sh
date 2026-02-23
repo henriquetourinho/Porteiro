@@ -40,7 +40,7 @@ fi
 echo "🔒 Fechando acesso e limpando IPs do Nginx..."
 NGINX_CONF="/etc/nginx/porteiro_ips.conf"
 if [ -f "$NGINX_CONF" ]; then
-    echo "" > "$NGINX_CONF"
+    : > "$NGINX_CONF"
     if nginx -t 2>/dev/null; then
         systemctl reload nginx 2>/dev/null
         echo "✅ Nginx limpo e recarregado."
@@ -51,9 +51,14 @@ else
     echo "   Arquivo $NGINX_CONF não encontrado. Pulando."
 fi
 
-# --- 2. Cancelar agendamentos do Auto-Off ---
+# --- 2. Cancelar todos os agendamentos do Porteiro (timers individuais por IP) ---
 echo "⏱️  Cancelando agendamentos do Auto-Off..."
-atq 2>/dev/null | grep -i "porteiro" | awk '{print $1}' | xargs -r atrm 2>/dev/null
+atq 2>/dev/null | while read -r JOB; do
+    ID=$(echo "$JOB" | awk '{print $1}')
+    if at -c "$ID" 2>/dev/null | grep -q "#porteiro-"; then
+        atrm "$ID" 2>/dev/null
+    fi
+done
 echo "✅ Agendamentos cancelados."
 
 # --- 3. Remover links simbólicos globais ---
@@ -76,13 +81,13 @@ else
     echo "   ⚠️  Diretório /opt/porteiro não encontrado."
 fi
 
-# --- 4b. Remover logrotate ---
+# --- 5. Remover logrotate ---
 if [ -f "/etc/logrotate.d/porteiro" ]; then
     rm -f "/etc/logrotate.d/porteiro"
     echo "✅ Logrotate removido."
 fi
 
-# --- 5. Remover arquivo de IPs do Nginx ---
+# --- 6. Remover arquivo de IPs do Nginx ---
 echo "🗑️  Removendo /etc/nginx/porteiro_ips.conf..."
 if [ -f "$NGINX_CONF" ]; then
     rm -f "$NGINX_CONF"
@@ -91,7 +96,7 @@ else
     echo "   ⚠️  Arquivo não encontrado."
 fi
 
-# --- 6. Perguntar sobre o log ---
+# --- 7. Perguntar sobre o log ---
 echo ""
 LOG_FILE="/var/log/porteiro.log"
 if [ -f "$LOG_FILE" ]; then
@@ -104,7 +109,7 @@ if [ -f "$LOG_FILE" ]; then
     fi
 fi
 
-# --- 7. Wizard de limpeza do Nginx ---
+# --- 8. Wizard de limpeza do Nginx ---
 echo ""
 echo "=============================="
 echo "✅ Porteiro desinstalado com sucesso!"

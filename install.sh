@@ -17,10 +17,38 @@ echo ""
 echo "🚪 Porteiro v2.0 — Instalando..."
 echo "=============================="
 
+# --- 0. Verificar dependência crítica: nginx ---
+NGINX_AUSENTE=0
+if ! command -v nginx &> /dev/null; then
+    NGINX_AUSENTE=1
+    echo ""
+    echo "⚠️  Nginx não encontrado neste servidor."
+    echo "   O Porteiro depende do Nginx para funcionar."
+    echo "   Instale o Nginx antes de continuar:"
+    echo ""
+    echo "   sudo apt-get install nginx    (Debian/Ubuntu)"
+    echo "   sudo dnf install nginx        (Rocky/Alma/CentOS)"
+    echo ""
+    read -p "   Deseja continuar mesmo assim? (s/N): " CONTINUAR_SEM_NGINX
+    if [[ "$CONTINUAR_SEM_NGINX" != "s" && "$CONTINUAR_SEM_NGINX" != "S" ]]; then
+        echo "   Instalação cancelada."
+        exit 1
+    fi
+fi
+
 # --- 1. Instalar dependência: at ---
 echo "📦 Verificando dependência: at"
 if ! command -v at &> /dev/null; then
-    apt-get update -qq && apt-get install at -y -qq
+    if command -v apt-get &> /dev/null; then
+        apt-get update -qq && apt-get install at -y -qq
+    elif command -v dnf &> /dev/null; then
+        dnf install -y at -q
+    elif command -v yum &> /dev/null; then
+        yum install -y at -q
+    else
+        echo "❌ Gerenciador de pacotes não reconhecido. Instale o 'at' manualmente e rode novamente."
+        exit 1
+    fi
     systemctl enable --now atd
     echo "✅ 'at' instalado e ativado."
 else
@@ -75,6 +103,10 @@ for OPCAO in $OPCOES_ROTAS; do
         4) NOVA_ROTA="/panel/" ;;
         5)
             read -p "   Digite a rota (ex: /meupainel/): " NOVA_ROTA
+            # Garante barra inicial
+            [[ "$NOVA_ROTA" != /* ]] && NOVA_ROTA="/$NOVA_ROTA"
+            # Garante barra final se não terminar com extensão de arquivo
+            [[ "$NOVA_ROTA" != *"."* && "$NOVA_ROTA" != */ ]] && NOVA_ROTA="$NOVA_ROTA/"
             ;;
         *)
             echo "   ⚠️  Opção '$OPCAO' inválida. Ignorada."
@@ -85,7 +117,7 @@ for OPCAO in $OPCOES_ROTAS; do
     if echo "$ROTAS" | grep -q "$NOVA_ROTA"; then
         echo "   ⚠️  '$NOVA_ROTA' já está na lista."
     else
-        ROTAS="$ROTAS $NOVA_ROTA"
+        ROTAS=$(echo "$ROTAS $NOVA_ROTA" | xargs)
         echo "   ✅ '$NOVA_ROTA' adicionada."
     fi
 done
@@ -102,6 +134,13 @@ echo ""
 # ======================================================================
 echo "📣 Notificações via Telegram (opcional)"
 echo "=============================="
+
+# Verifica se curl está disponível (necessário para Telegram)
+if ! command -v curl &> /dev/null; then
+    echo "   ⚠️  curl não encontrado. Notificações Telegram não funcionarão."
+    echo "   Instale com: sudo apt-get install curl"
+    echo ""
+fi
 echo "   Receba um aviso no celular sempre que porteiro-on, porteiro-off"
 echo "   ou porteiro-status for executado."
 echo ""
@@ -187,6 +226,8 @@ fi
 # --- 6. Criar arquivo de IPs do Nginx ---
 if [ ! -f "$NGINX_CONF" ]; then
     touch "$NGINX_CONF"
+    chmod 640 "$NGINX_CONF"
+    chown root:root "$NGINX_CONF"
     echo "✅ Arquivo criado: $NGINX_CONF"
 else
     echo "✅ Arquivo já existe: $NGINX_CONF"
@@ -196,6 +237,7 @@ fi
 if [ ! -f "$LOG_FILE" ]; then
     touch "$LOG_FILE"
     chmod 640 "$LOG_FILE"
+    chown root:root "$LOG_FILE"
     echo "✅ Log criado: $LOG_FILE"
 else
     echo "✅ Log já existe: $LOG_FILE"
@@ -217,6 +259,7 @@ echo "✅ Logrotate configurado: /etc/logrotate.d/porteiro"
 # --- 8. Criar o script porteiro-on ---
 cat << 'EOF' > "$INSTALL_DIR/porteiro-on"
 #!/bin/bash
+set -euo pipefail
 
 # ======================================================================
 # porteiro-on — Libera o seu IP em todas as rotas protegidas
@@ -238,7 +281,12 @@ LOG_FILE="/var/log/porteiro.log"
 source "$CONFIG_FILE"
 
 # --- Detecta o IP da sessão SSH ---
-MEU_IP=$(echo "$SSH_CLIENT" | awk '{ print $1 }')
+MEU_IP="${SSH_CLIENT%% *}"
+
+# Fallback: tmux, screen, sudo su, jump hosts
+if [ -z "$MEU_IP" ]; then
+    MEU_IP=$(who am i 2>/dev/null | awk '{print $5}' | tr -d '()')
+fi
 
 if [ -z "$MEU_IP" ]; then
     echo ""
@@ -255,16 +303,25 @@ if [ -z "$MEU_IP" ]; then
 fi
 
 # --- Processa o argumento de tempo ---
-TEMPO_ARG="$1"
+TEMPO_ARG="${1:-}"
 TEMPO_MINUTOS="$DEFAULT_TIME"
 TEMPO_LABEL="${DEFAULT_TIME} minuto(s)"
 
 if [ -n "$TEMPO_ARG" ]; then
-    NUMERO=$(echo "$TEMPO_ARG" | grep -o '[0-9]*')
-    UNIDADE=$(echo "$TEMPO_ARG" | grep -o '[a-zA-Z]*')
+    # Valida formato: número puro (minutos), ou número + sufixo m/h
+    if [[ ! "$TEMPO_ARG" =~ ^[0-9]+(m|min|minutos|h|hora|horas)?$ ]]; then
+        echo "❌ Formato de tempo inválido: '$TEMPO_ARG'"
+        echo "   Use: porteiro-on 30     (30 minutos)"
+        echo "        porteiro-on 30m    (30 minutos)"
+        echo "        porteiro-on 2h     (2 horas)"
+        exit 1
+    fi
+
+    NUMERO=$(echo "$TEMPO_ARG" | grep -o '^[0-9]\+')
+    UNIDADE=$(echo "$TEMPO_ARG" | grep -o '[a-zA-Z]*$')
 
     case "$UNIDADE" in
-        m|min|minutos)
+        m|min|minutos|"")
             TEMPO_MINUTOS="$NUMERO"
             TEMPO_LABEL="${NUMERO} minuto(s)"
             ;;
@@ -272,16 +329,12 @@ if [ -n "$TEMPO_ARG" ]; then
             TEMPO_MINUTOS=$((NUMERO * 60))
             TEMPO_LABEL="${NUMERO} hora(s)"
             ;;
-        *)
-            echo "⚠️  Unidade inválida: '$UNIDADE'. Use 'm' para minutos ou 'h' para horas."
-            echo "   Usando tempo padrão: ${DEFAULT_TIME} minutos."
-            ;;
     esac
 fi
 
 # --- Injeta o IP no arquivo compartilhado do Nginx (multi-IP) ---
 # Adiciona o IP apenas se ainda não estiver na lista
-grep -q "allow $MEU_IP;" "$NGINX_CONF" 2>/dev/null || echo "allow $MEU_IP;" >> "$NGINX_CONF"
+grep -q "^allow $MEU_IP;" "$NGINX_CONF" 2>/dev/null || echo "allow $MEU_IP;" >> "$NGINX_CONF"
 
 # --- Valida a config do Nginx antes de recarregar ---
 if nginx -t 2>/dev/null; then
@@ -292,9 +345,14 @@ else
     exit 1
 fi
 
-# --- Cancela apenas os agendamentos do Porteiro e agenda o novo Auto-Off ---
-atq 2>/dev/null | grep -i "porteiro" | awk '{print $1}' | xargs -r atrm 2>/dev/null
-echo "/usr/local/bin/porteiro-off > /dev/null 2>&1 #porteiro" | at now + ${TEMPO_MINUTOS} minutes 2>/dev/null
+# --- Cancela job anterior deste IP específico (inspeciona tag real) ---
+atq 2>/dev/null | while read -r JOB; do
+    ID=$(echo "$JOB" | awk '{print $1}')
+    if at -c "$ID" 2>/dev/null | grep -q "#porteiro-$MEU_IP"; then
+        atrm "$ID" 2>/dev/null
+    fi
+done
+echo "/usr/local/bin/porteiro-revoke $MEU_IP > /dev/null 2>&1 #porteiro-$MEU_IP" | at now + ${TEMPO_MINUTOS} minutes 2>/dev/null
 
 # --- Registra no log ---
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
@@ -304,12 +362,18 @@ echo "[$TIMESTAMP] ABERTO  | IP: $MEU_IP | Duração: $TEMPO_LABEL | Rotas: $ROT
 
 # --- Notificação Telegram (opcional) ---
 if [ -n "$TELEGRAM_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
-    ROTAS_MSG=$(echo "$ROTAS" | tr ' ' '\n' | sed 's/^/  •  /' | tr '\n' '%0A')
-    MENSAGEM="🚪 *Porteiro — Acesso Liberado*%0A%0A🖥 Host: $HOSTNAME%0A🌍 IP autorizado: \`$MEU_IP\`%0A🛣 Rotas:%0A${ROTAS_MSG}%0A⏱ Duração: $TEMPO_LABEL%0A🕐 Horário: $TIMESTAMP"
+    # Escapa caracteres especiais para MarkdownV2
+    escape_md2() { echo "$1" | sed 's/[_*[\]()~`>#+=|{}.!-]/\\&/g'; }
+    HOSTNAME_ESC=$(escape_md2 "$HOSTNAME")
+    MEU_IP_ESC=$(escape_md2 "$MEU_IP")
+    TEMPO_LABEL_ESC=$(escape_md2 "$TEMPO_LABEL")
+    TIMESTAMP_ESC=$(escape_md2 "$TIMESTAMP")
+    ROTAS_MSG=$(echo "$ROTAS" | tr ' ' '\n' | sed 's/^/  •  /' | while read -r l; do escape_md2 "$l"; done | tr '\n' '%0A')
+    MENSAGEM="🚪 *Porteiro — Acesso Liberado*%0A%0A🖥 Host: ${HOSTNAME_ESC}%0A🌍 IP autorizado: \`${MEU_IP_ESC}\`%0A🛣 Rotas:%0A${ROTAS_MSG}%0A⏱ Duração: ${TEMPO_LABEL_ESC}%0A🕐 Horário: ${TIMESTAMP_ESC}"
     curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
         -d "chat_id=${TELEGRAM_CHAT_ID}" \
         -d "text=${MENSAGEM}" \
-        -d "parse_mode=Markdown" > /dev/null 2>&1
+        -d "parse_mode=MarkdownV2" > /dev/null 2>&1
 fi
 
 # --- Saída ---
@@ -325,9 +389,12 @@ EOF
 # --- 9. Criar o script porteiro-off ---
 cat << 'EOF' > "$INSTALL_DIR/porteiro-off"
 #!/bin/bash
+set -euo pipefail
 
 # ======================================================================
 # porteiro-off — Revoga o acesso e bloqueia todas as rotas protegidas
+# Nota: fecha todos os IPs de uma vez.
+# Para revogar apenas o seu IP, use: sudo porteiro-revoke <IP>
 # ======================================================================
 
 CONFIG_FILE="/opt/porteiro/porteiro.conf"
@@ -337,7 +404,7 @@ LOG_FILE="/var/log/porteiro.log"
 source "$CONFIG_FILE"
 
 # --- Limpa o arquivo de IPs compartilhado ---
-echo "" > "$NGINX_CONF"
+: > "$NGINX_CONF"
 
 # --- Valida config do Nginx antes de recarregar ---
 if nginx -t 2>/dev/null; then
@@ -347,8 +414,13 @@ else
     exit 1
 fi
 
-# --- Cancela apenas agendamentos do Porteiro ---
-atq 2>/dev/null | grep -i "porteiro" | awk '{print $1}' | xargs -r atrm 2>/dev/null
+# --- Cancela apenas jobs realmente criados pelo Porteiro ---
+atq 2>/dev/null | while read -r JOB; do
+    ID=$(echo "$JOB" | awk '{print $1}')
+    if at -c "$ID" 2>/dev/null | grep -q "#porteiro-"; then
+        atrm "$ID" 2>/dev/null
+    fi
+done
 
 # --- Registra no log ---
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
@@ -358,12 +430,15 @@ echo "[$TIMESTAMP] FECHADO | Rotas: $ROTAS_LOG | Host: $HOSTNAME" >> "$LOG_FILE"
 
 # --- Notificação Telegram (opcional) ---
 if [ -n "$TELEGRAM_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
-    ROTAS_MSG=$(echo "$ROTAS" | tr ' ' '\n' | sed 's/^/  •  /' | tr '\n' '%0A')
-    MENSAGEM="🔒 *Porteiro — Acesso Bloqueado*%0A%0A🖥 Host: $HOSTNAME%0A🛣 Rotas:%0A${ROTAS_MSG}%0A🕐 Horário: $TIMESTAMP"
+    escape_md2() { echo "$1" | sed 's/[_*[\]()~`>#+=|{}.!-]/\\&/g'; }
+    HOSTNAME_ESC=$(escape_md2 "$HOSTNAME")
+    TIMESTAMP_ESC=$(escape_md2 "$TIMESTAMP")
+    ROTAS_MSG=$(echo "$ROTAS" | tr ' ' '\n' | sed 's/^/  •  /' | while read -r l; do escape_md2 "$l"; done | tr '\n' '%0A')
+    MENSAGEM="🔒 *Porteiro — Acesso Bloqueado*%0A%0A🖥 Host: ${HOSTNAME_ESC}%0A🛣 Rotas:%0A${ROTAS_MSG}%0A🕐 Horário: ${TIMESTAMP_ESC}"
     curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
         -d "chat_id=${TELEGRAM_CHAT_ID}" \
         -d "text=${MENSAGEM}" \
-        -d "parse_mode=Markdown" > /dev/null 2>&1
+        -d "parse_mode=MarkdownV2" > /dev/null 2>&1
 fi
 
 # --- Saída ---
@@ -376,6 +451,7 @@ EOF
 # --- 10. Criar o script porteiro-status ---
 cat << 'EOF' > "$INSTALL_DIR/porteiro-status"
 #!/bin/bash
+set -euo pipefail
 
 # ======================================================================
 # porteiro-status — Mostra o estado atual do Porteiro
@@ -391,19 +467,26 @@ echo ""
 echo "🚪 Porteiro — Status"
 echo "========================"
 
-# --- Verifica se há IP autorizado ---
-IP_ATUAL=$(grep -oP '(?<=allow )[^;]+' "$NGINX_CONF" 2>/dev/null)
+# --- Verifica se há IPs autorizados ---
+IP_ATUAL=$(awk '/allow/ {gsub("allow |;",""); print}' "$NGINX_CONF" 2>/dev/null | tr '\n' ',' | sed 's/,$//')
 
 if [ -n "$IP_ATUAL" ]; then
     echo "   Estado  : 🟢 ABERTO"
-    echo "   IP ativo: $IP_ATUAL"
+    echo "   IPs ativos:"
+    awk '/allow/ {gsub("allow |;",""); print "             → " $0}' "$NGINX_CONF" 2>/dev/null
     echo "   Rotas   : $ROTAS"
 
-    PROXIMO_JOB=$(atq 2>/dev/null | head -1)
-    if [ -n "$PROXIMO_JOB" ]; then
-        HORA_OFF=$(echo "$PROXIMO_JOB" | awk '{print $3, $4}')
-        echo "   Auto-Off: $HORA_OFF"
-    fi
+    # Mostra jobs do porteiro por IP (inspeciona tag real via at -c, sem subshell)
+    PRINTED_HEADER=0
+    while read -r JOB; do
+        ID=$(echo "$JOB" | awk '{print $1}')
+        HORA=$(echo "$JOB" | awk '{print $3, $4}')
+        TAG=$(at -c "$ID" 2>/dev/null | grep "#porteiro-" | awk -F'#porteiro-' '{print $2}' | awk '{print $1}')
+        if [ -n "$TAG" ]; then
+            [ "$PRINTED_HEADER" -eq 0 ] && echo "   Auto-Off :" && PRINTED_HEADER=1
+            echo "             → $TAG às $HORA"
+        fi
+    done < <(atq 2>/dev/null)
 else
     echo "   Estado  : 🔴 FECHADO"
     echo "   Rotas   : $ROTAS"
@@ -424,23 +507,28 @@ echo ""
 if [ -n "$TELEGRAM_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
     TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
     HOSTNAME=$(hostname)
+    escape_md2() { echo "$1" | sed 's/[_*[\]()~`>#+=|{}.!-]/\\&/g'; }
+    HOSTNAME_ESC=$(escape_md2 "$HOSTNAME")
+    TIMESTAMP_ESC=$(escape_md2 "$TIMESTAMP")
     if [ -n "$IP_ATUAL" ]; then
-        ESTADO="🟢 ABERTO | IP: \`$IP_ATUAL\`"
+        IPS_ESC=$(echo "$IP_ATUAL" | while read -r l; do escape_md2 "$l"; done | sed 's/^/`/' | sed 's/$/'"\`"'/' | tr '\n' ' ')
+        ESTADO="🟢 ABERTO | IPs: ${IPS_ESC}"
     else
         ESTADO="🔴 FECHADO"
     fi
-    ROTAS_MSG=$(echo "$ROTAS" | tr ' ' '\n' | sed 's/^/  •  /' | tr '\n' '%0A')
-    MENSAGEM="📊 *Porteiro — Status*%0A%0A🖥 Host: $HOSTNAME%0A🔑 Estado: $ESTADO%0A🛣 Rotas:%0A${ROTAS_MSG}%0A🕐 Horário: $TIMESTAMP"
+    ROTAS_MSG=$(echo "$ROTAS" | tr ' ' '\n' | sed 's/^/  •  /' | while read -r l; do escape_md2 "$l"; done | tr '\n' '%0A')
+    MENSAGEM="📊 *Porteiro — Status*%0A%0A🖥 Host: ${HOSTNAME_ESC}%0A🔑 Estado: ${ESTADO}%0A🛣 Rotas:%0A${ROTAS_MSG}%0A🕐 Horário: ${TIMESTAMP_ESC}"
     curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
         -d "chat_id=${TELEGRAM_CHAT_ID}" \
         -d "text=${MENSAGEM}" \
-        -d "parse_mode=Markdown" > /dev/null 2>&1
+        -d "parse_mode=MarkdownV2" > /dev/null 2>&1
 fi
 EOF
 
 # --- 11. Criar o script porteiro-list ---
 cat << 'EOF' > "$INSTALL_DIR/porteiro-list"
 #!/bin/bash
+set -euo pipefail
 
 # ======================================================================
 # porteiro-list — Lista todos os IPs ativos e rotas protegidas
@@ -466,10 +554,10 @@ fi
 echo "   🟢 IPs atualmente autorizados:"
 echo ""
 
-IPS=$(grep -oP '(?<=allow )[^;]+' "$NGINX_CONF")
+IPS=$(awk '/allow/ {gsub("allow |;",""); print}' "$NGINX_CONF")
 
 for IP in $IPS; do
-    ULTIMO=$(grep "ABERTO" "$LOG_FILE" 2>/dev/null | grep "$IP" | tail -1)
+    ULTIMO=$(grep "ABERTO" "$LOG_FILE" 2>/dev/null | grep -F "IP: $IP " | tail -1)
     if [ -n "$ULTIMO" ]; then
         DATA=$(echo "$ULTIMO" | awk '{print $1, $2}' | tr -d '[]')
         echo "   → $IP  (aberto em $DATA)"
@@ -489,6 +577,7 @@ EOF
 # --- 12. Criar o script porteiro-revoke ---
 cat << 'EOF' > "$INSTALL_DIR/porteiro-revoke"
 #!/bin/bash
+set -euo pipefail
 
 # ======================================================================
 # porteiro-revoke — Revoga o acesso de um IP específico
@@ -511,23 +600,34 @@ if [ -z "$IP_ALVO" ]; then
     echo "   Exemplo: sudo porteiro-revoke 189.x.x.x"
     echo ""
     echo "   IPs ativos no momento:"
-    grep -oP '(?<=allow )[^;]+' "$NGINX_CONF" 2>/dev/null | sed 's/^/   → /' || echo "   Nenhum."
+    awk '/allow/ {gsub("allow |;",""); print "   → " $0}' "$NGINX_CONF" 2>/dev/null || echo "   Nenhum."
     echo ""
     exit 1
 fi
 
-if ! grep -q "allow $IP_ALVO;" "$NGINX_CONF" 2>/dev/null; then
+# --- Fix: Valida formato E faixa do IP antes de qualquer operação ---
+if ! [[ "$IP_ALVO" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || \
+   ! awk -F. '$1<=255 && $2<=255 && $3<=255 && $4<=255' <<< "$IP_ALVO" > /dev/null 2>&1; then
+    echo ""
+    echo "❌ IP inválido: $IP_ALVO"
+    echo "   Use um IPv4 válido. Exemplo: 189.10.20.30"
+    echo ""
+    exit 1
+fi
+
+if ! grep -q "^allow $IP_ALVO;" "$NGINX_CONF" 2>/dev/null; then
     echo ""
     echo "⚠️  IP não encontrado na lista de autorizados: $IP_ALVO"
     echo ""
     echo "   IPs ativos no momento:"
-    grep -oP '(?<=allow )[^;]+' "$NGINX_CONF" 2>/dev/null | sed 's/^/   → /' || echo "   Nenhum."
+    awk '/allow/ {gsub("allow |;",""); print "   → " $0}' "$NGINX_CONF" 2>/dev/null || echo "   Nenhum."
     echo ""
     exit 1
 fi
 
-# Remove apenas a linha do IP alvo
-sed -i "/allow $IP_ALVO;/d" "$NGINX_CONF"
+# Remove apenas a linha do IP alvo (IP já validado como IPv4)
+IP_ESCAPED=$(echo "$IP_ALVO" | sed 's/\./\\./g')
+sed -i "/allow $IP_ESCAPED;/d" "$NGINX_CONF"
 
 # Valida nginx antes de recarregar
 if nginx -t 2>/dev/null; then
@@ -545,12 +645,16 @@ echo "[$TIMESTAMP] REVOGADO | IP: $IP_ALVO | Rotas: $ROTAS_LOG | Host: $HOSTNAME
 
 # Notificação Telegram (opcional)
 if [ -n "$TELEGRAM_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
-    ROTAS_MSG=$(echo "$ROTAS" | tr ' ' '\n' | sed 's/^/  •  /' | tr '\n' '%0A')
-    MENSAGEM="🔒 *Porteiro — IP Revogado*%0A%0A🖥 Host: $HOSTNAME%0A🚫 IP removido: \`$IP_ALVO\`%0A🛣 Rotas:%0A${ROTAS_MSG}%0A🕐 Horário: $TIMESTAMP"
+    escape_md2() { echo "$1" | sed 's/[_*[\]()~`>#+=|{}.!-]/\\&/g'; }
+    HOSTNAME_ESC=$(escape_md2 "$HOSTNAME")
+    IP_ALVO_ESC=$(escape_md2 "$IP_ALVO")
+    TIMESTAMP_ESC=$(escape_md2 "$TIMESTAMP")
+    ROTAS_MSG=$(echo "$ROTAS" | tr ' ' '\n' | sed 's/^/  •  /' | while read -r l; do escape_md2 "$l"; done | tr '\n' '%0A')
+    MENSAGEM="🔒 *Porteiro — IP Revogado*%0A%0A🖥 Host: ${HOSTNAME_ESC}%0A🚫 IP removido: \`${IP_ALVO_ESC}\`%0A🛣 Rotas:%0A${ROTAS_MSG}%0A🕐 Horário: ${TIMESTAMP_ESC}"
     curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
         -d "chat_id=${TELEGRAM_CHAT_ID}" \
         -d "text=${MENSAGEM}" \
-        -d "parse_mode=Markdown" > /dev/null 2>&1
+        -d "parse_mode=MarkdownV2" > /dev/null 2>&1
 fi
 
 echo ""
@@ -570,6 +674,7 @@ chown root:root "$INSTALL_DIR/porteiro-off"
 chown root:root "$INSTALL_DIR/porteiro-status"
 chown root:root "$INSTALL_DIR/porteiro-list"
 chown root:root "$INSTALL_DIR/porteiro-revoke"
+chown root:root "$CONFIG_FILE"
 
 echo "🔐 Permissões aplicadas (755, root:root)"
 
@@ -607,6 +712,10 @@ for ROTA in $ROTAS; do
     echo ""
     echo "        location ~ \\.php\$ {"
     echo "            include snippets/fastcgi-php.conf;"
+    echo "            # Ajuste o socket conforme sua versão do PHP:"
+    echo "            # fastcgi_pass unix:/run/php/php8.1-fpm.sock;"
+    echo "            # fastcgi_pass unix:/run/php/php8.2-fpm.sock;"
+    echo "            # fastcgi_pass unix:/run/php/php8.3-fpm.sock;"
     echo "            fastcgi_pass unix:/run/php/php-fpm.sock;"
     echo "        }"
     echo "    }"
@@ -630,3 +739,15 @@ echo "   sudo porteiro-revoke <IP>      → Revoga acesso de um IP específico"
 echo ""
 echo "   ⚠️  Use sempre 'sudo' — os comandos precisam de root para recarregar o Nginx."
 echo ""
+
+# --- Aviso final se nginx não foi encontrado durante a instalação ---
+if [ "$NGINX_AUSENTE" -eq 1 ]; then
+    echo "=============================="
+    echo "🚨 ATENÇÃO: Nginx não detectado."
+    echo "   O Porteiro foi instalado, mas NÃO funcionará até que o Nginx esteja"
+    echo "   instalado e configurado com os blocos location corretos."
+    echo ""
+    echo "   Instale o Nginx e rode 'sudo nginx -t' antes de usar qualquer comando."
+    echo "=============================="
+    echo ""
+fi
