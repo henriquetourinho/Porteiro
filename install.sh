@@ -438,23 +438,149 @@ if [ -n "$TELEGRAM_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
 fi
 EOF
 
-# --- 11. Permissões corretas ---
+# --- 11. Criar o script porteiro-list ---
+cat << 'EOF' > "$INSTALL_DIR/porteiro-list"
+#!/bin/bash
+
+# ======================================================================
+# porteiro-list — Lista todos os IPs ativos e rotas protegidas
+# ======================================================================
+
+CONFIG_FILE="/opt/porteiro/porteiro.conf"
+NGINX_CONF="/etc/nginx/porteiro_ips.conf"
+LOG_FILE="/var/log/porteiro.log"
+
+source "$CONFIG_FILE"
+
+echo ""
+echo "🚪 Porteiro — IPs Ativos"
+echo "=============================="
+
+if [ ! -s "$NGINX_CONF" ]; then
+    echo "   🔴 Nenhum IP autorizado no momento."
+    echo "   Rotas protegidas: $ROTAS"
+    echo ""
+    exit 0
+fi
+
+echo "   🟢 IPs atualmente autorizados:"
+echo ""
+
+IPS=$(grep -oP '(?<=allow )[^;]+' "$NGINX_CONF")
+
+for IP in $IPS; do
+    ULTIMO=$(grep "ABERTO" "$LOG_FILE" 2>/dev/null | grep "$IP" | tail -1)
+    if [ -n "$ULTIMO" ]; then
+        DATA=$(echo "$ULTIMO" | awk '{print $1, $2}' | tr -d '[]')
+        echo "   → $IP  (aberto em $DATA)"
+    else
+        echo "   → $IP"
+    fi
+done
+
+echo ""
+echo "   Rotas protegidas:"
+for ROTA in $ROTAS; do
+    echo "   • $ROTA"
+done
+echo ""
+EOF
+
+# --- 12. Criar o script porteiro-revoke ---
+cat << 'EOF' > "$INSTALL_DIR/porteiro-revoke"
+#!/bin/bash
+
+# ======================================================================
+# porteiro-revoke — Revoga o acesso de um IP específico
+# Uso: sudo porteiro-revoke <IP>
+# Exemplo: sudo porteiro-revoke 189.x.x.x
+# ======================================================================
+
+CONFIG_FILE="/opt/porteiro/porteiro.conf"
+NGINX_CONF="/etc/nginx/porteiro_ips.conf"
+LOG_FILE="/var/log/porteiro.log"
+
+source "$CONFIG_FILE"
+
+IP_ALVO="$1"
+
+if [ -z "$IP_ALVO" ]; then
+    echo ""
+    echo "❌ IP não informado."
+    echo "   Uso: sudo porteiro-revoke <IP>"
+    echo "   Exemplo: sudo porteiro-revoke 189.x.x.x"
+    echo ""
+    echo "   IPs ativos no momento:"
+    grep -oP '(?<=allow )[^;]+' "$NGINX_CONF" 2>/dev/null | sed 's/^/   → /' || echo "   Nenhum."
+    echo ""
+    exit 1
+fi
+
+if ! grep -q "allow $IP_ALVO;" "$NGINX_CONF" 2>/dev/null; then
+    echo ""
+    echo "⚠️  IP não encontrado na lista de autorizados: $IP_ALVO"
+    echo ""
+    echo "   IPs ativos no momento:"
+    grep -oP '(?<=allow )[^;]+' "$NGINX_CONF" 2>/dev/null | sed 's/^/   → /' || echo "   Nenhum."
+    echo ""
+    exit 1
+fi
+
+# Remove apenas a linha do IP alvo
+sed -i "/allow $IP_ALVO;/d" "$NGINX_CONF"
+
+# Valida nginx antes de recarregar
+if nginx -t 2>/dev/null; then
+    systemctl reload nginx
+else
+    echo "❌ Erro na configuração do Nginx. Revogação abortada."
+    exit 1
+fi
+
+# Registra no log
+TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+HOSTNAME=$(hostname)
+ROTAS_LOG=$(echo "$ROTAS" | tr ' ' ',')
+echo "[$TIMESTAMP] REVOGADO | IP: $IP_ALVO | Rotas: $ROTAS_LOG | Host: $HOSTNAME" >> "$LOG_FILE"
+
+# Notificação Telegram (opcional)
+if [ -n "$TELEGRAM_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+    ROTAS_MSG=$(echo "$ROTAS" | tr ' ' '\n' | sed 's/^/  •  /' | tr '\n' '%0A')
+    MENSAGEM="🔒 *Porteiro — IP Revogado*%0A%0A🖥 Host: $HOSTNAME%0A🚫 IP removido: \`$IP_ALVO\`%0A🛣 Rotas:%0A${ROTAS_MSG}%0A🕐 Horário: $TIMESTAMP"
+    curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+        -d "chat_id=${TELEGRAM_CHAT_ID}" \
+        -d "text=${MENSAGEM}" \
+        -d "parse_mode=Markdown" > /dev/null 2>&1
+fi
+
+echo ""
+echo "🔒 Acesso revogado: $IP_ALVO"
+echo ""
+EOF
+
+# --- 13. Permissões corretas ---
 chmod 755 "$INSTALL_DIR/porteiro-on"
 chmod 755 "$INSTALL_DIR/porteiro-off"
 chmod 755 "$INSTALL_DIR/porteiro-status"
+chmod 755 "$INSTALL_DIR/porteiro-list"
+chmod 755 "$INSTALL_DIR/porteiro-revoke"
 chmod 640 "$CONFIG_FILE"
 chown root:root "$INSTALL_DIR/porteiro-on"
 chown root:root "$INSTALL_DIR/porteiro-off"
 chown root:root "$INSTALL_DIR/porteiro-status"
+chown root:root "$INSTALL_DIR/porteiro-list"
+chown root:root "$INSTALL_DIR/porteiro-revoke"
 
 echo "🔐 Permissões aplicadas (755, root:root)"
 
-# --- 12. Criar links simbólicos globais ---
+# --- 14. Criar links simbólicos globais ---
 ln -sf "$INSTALL_DIR/porteiro-on"     /usr/local/bin/porteiro-on
 ln -sf "$INSTALL_DIR/porteiro-off"    /usr/local/bin/porteiro-off
 ln -sf "$INSTALL_DIR/porteiro-status" /usr/local/bin/porteiro-status
+ln -sf "$INSTALL_DIR/porteiro-list"   /usr/local/bin/porteiro-list
+ln -sf "$INSTALL_DIR/porteiro-revoke" /usr/local/bin/porteiro-revoke
 
-echo "🔗 Comandos globais registrados: porteiro-on | porteiro-off | porteiro-status"
+echo "🔗 Comandos globais registrados: porteiro-on | porteiro-off | porteiro-status | porteiro-list | porteiro-revoke"
 
 # ======================================================================
 # INSTRUÇÃO FINAL — Blocos Nginx para cada rota configurada
@@ -496,9 +622,11 @@ echo "   Após editar o Nginx, rode:"
 echo "   sudo nginx -t && sudo systemctl reload nginx"
 echo ""
 echo "   Comandos disponíveis:"
-echo "   sudo porteiro-on [tempo]  → Libera seu IP em todas as rotas (ex: sudo porteiro-on 30m)"
-echo "   sudo porteiro-off         → Bloqueia todas as rotas imediatamente"
-echo "   sudo porteiro-status      → Mostra estado atual, rotas e log recente"
+echo "   sudo porteiro-on [tempo]       → Libera seu IP em todas as rotas (ex: sudo porteiro-on 30m)"
+echo "   sudo porteiro-off              → Bloqueia todas as rotas imediatamente"
+echo "   sudo porteiro-status           → Mostra estado atual, rotas e log recente"
+echo "   sudo porteiro-list             → Lista todos os IPs ativos com data de abertura"
+echo "   sudo porteiro-revoke <IP>      → Revoga acesso de um IP específico"
 echo ""
 echo "   ⚠️  Use sempre 'sudo' — os comandos precisam de root para recarregar o Nginx."
 echo ""

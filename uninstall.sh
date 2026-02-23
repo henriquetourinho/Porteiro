@@ -58,7 +58,7 @@ echo "✅ Agendamentos cancelados."
 
 # --- 3. Remover links simbólicos globais ---
 echo "🔗 Removendo comandos globais..."
-for CMD in porteiro-on porteiro-off porteiro-status; do
+for CMD in porteiro-on porteiro-off porteiro-status porteiro-list porteiro-revoke; do
     if [ -L "/usr/local/bin/$CMD" ]; then
         rm -f "/usr/local/bin/$CMD"
         echo "   ✅ Removido: /usr/local/bin/$CMD"

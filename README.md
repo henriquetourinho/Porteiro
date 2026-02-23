@@ -40,6 +40,8 @@ A lógica é simples:
 - **📊 Status em Tempo Real:** `sudo porteiro-status` mostra estado, IPs ativos, rotas protegidas e log recente — com notificação Telegram se configurado.
 - **📋 Log de Auditoria com Rotação:** Cada evento registrado em `/var/log/porteiro.log`. Logrotate configurado automaticamente — o log nunca cresce infinito em produção.
 - **📣 Notificação via Telegram:** Receba uma mensagem no celular sempre que a porta abrir, fechar ou o status for consultado. Totalmente opcional — configurado com wizard durante a instalação.
+- **📋 Listagem de IPs Ativos:** `sudo porteiro-list` exibe todos os IPs autorizados no momento, com data e hora de abertura de cada um. Lê direto do arquivo e do log — sem banco de dados.
+- **🚫 Revogação Individual:** `sudo porteiro-revoke <IP>` remove o acesso de um IP específico sem afetar os demais. Cirúrgico, validado e registrado no log.
 - **🛣️ Multi-rota:** Proteja `/phpmyadmin/`, `/adminer/`, `/wp-admin/` ou qualquer rota sensível. Um `porteiro-on` libera tudo, um `porteiro-off` bloqueia tudo. Rotas escolhidas interativamente durante a instalação.
 - **🪶 Levíssimo:** Shell Script puro. Zero dependências externas. Funciona até em VPS de R$15/mês.
 
@@ -119,7 +121,7 @@ Após os wizards, o instalador também cuida de:
 - Criar o log em `/var/log/porteiro.log`
 - Configurar o **logrotate** em `/etc/logrotate.d/porteiro` (rotação mensal, 6 meses)
 - Aplicar permissões corretas (`755`, `root:root`)
-- Registrar os comandos globais `porteiro-on`, `porteiro-off` e `porteiro-status`
+- Registrar os comandos globais: `porteiro-on`, `porteiro-off`, `porteiro-status`, `porteiro-list` e `porteiro-revoke`
 - Gerar os **blocos Nginx prontos** para cada rota escolhida
 
 ### 3. Configurar o Nginx (único passo manual)
@@ -214,12 +216,16 @@ porteiro/
 ├── porteiro-on       # Libera seu IP em todas as rotas protegidas
 ├── porteiro-off      # Bloqueia todas as rotas para todo mundo
 ├── porteiro-status   # Mostra estado, rotas ativas e log recente
+├── porteiro-list     # Lista todos os IPs ativos com data de abertura
+├── porteiro-revoke   # Revoga acesso de um IP específico
 └── porteiro.conf     # Configurações (tempo, rotas, Telegram)
 
 # Comandos globais registrados em:
 /usr/local/bin/porteiro-on
 /usr/local/bin/porteiro-off
 /usr/local/bin/porteiro-status
+/usr/local/bin/porteiro-list
+/usr/local/bin/porteiro-revoke
 
 # Arquivos gerados no servidor:
 /etc/nginx/porteiro_ips.conf      # IPs autorizados (compartilhado por todas as rotas)
@@ -248,6 +254,45 @@ Saída esperada:
    Duração       : 2 hora(s)
    Auto-Off em   : 120 minuto(s)
    Rotas ativas  : /phpmyadmin/ /adminer/
+```
+
+### Listar IPs ativos
+
+```bash
+sudo porteiro-list
+```
+
+Saída esperada:
+```
+🚪 Porteiro — IPs Ativos
+==============================
+   🟢 IPs atualmente autorizados:
+
+   → 189.x.x.x  (aberto em 2026-02-22 21:45:12)
+   → 200.y.y.y  (aberto em 2026-02-22 22:10:05)
+
+   Rotas protegidas:
+   • /phpmyadmin/
+   • /adminer/
+```
+
+### Revogar um IP específico
+
+```bash
+sudo porteiro-revoke 189.x.x.x
+```
+
+Saída esperada:
+```
+🔒 Acesso revogado: 189.x.x.x
+```
+
+Se o IP não estiver na lista:
+```
+⚠️  IP não encontrado na lista de autorizados: 189.x.x.x
+
+   IPs ativos no momento:
+   → 200.y.y.y
 ```
 
 ### Fechar o acesso manualmente
@@ -321,6 +366,8 @@ A mágica do multi-rota está no arquivo `/etc/nginx/porteiro_ips.conf` — comp
 | Ataques de força bruta | ✅ Possível | ❌ Impossível (porta fechada) |
 | Acesso do administrador | ✅ Sim | ✅ Sim (via SSH + porteiro-on) |
 | Múltiplos admins simultâneos | ❌ Conflito de IPs | ✅ Multi-IP nativo |
+| Ver quem está com acesso | ❌ Não | ✅ porteiro-list |
+| Revogar um admin sem fechar tudo | ❌ Não | ✅ porteiro-revoke |
 | Esqueceu a porta aberta | ✅ Problema seu | ❌ Auto-Off resolve |
 | Jobs externos cancelados pelo script | ✅ Risco real | ❌ Tag #porteiro protege |
 | Nginx derrubado por config quebrada | ✅ Possível | ❌ nginx -t valida antes |
@@ -351,7 +398,9 @@ A mágica do multi-rota está no arquivo `/etc/nginx/porteiro_ips.conf` — comp
 - [x] Log de auditoria com IP e rotas em `/var/log/porteiro.log`
 - [x] Logrotate configurado automaticamente (mensal, 6 meses, comprimido)
 - [x] `porteiro-status` com estado e rotas em tempo real
-- [x] Notificação Telegram no `porteiro-on`, `porteiro-off` e `porteiro-status` (opcional)
+- [x] `porteiro-list` lista IPs ativos com data de abertura
+- [x] `porteiro-revoke` revoga IP individual com registro em log
+- [x] Notificação Telegram no `porteiro-on`, `porteiro-off`, `porteiro-revoke` e `porteiro-status` (opcional)
 
 ### Leveza ✅
 - [x] Zero dependências npm/pip/gem
@@ -433,8 +482,7 @@ sudo SSH_CLIENT='SEU_IP 0 0' porteiro-on
 - **Suporte a Apache** — Versão equivalente para `.htaccess`
 - **Suporte a IPv6** — Para servidores modernos
 - **`porteiro-off` com delay** — `porteiro-off 10m` fecha em 10 minutos
-- **`porteiro-list`** — Listar todos os IPs ativos com tempo restante de cada um
-- **`porteiro-revoke IP`** — Revogar acesso de um IP específico sem fechar todos
+- **Timer individual por IP** — cada admin com seu próprio Auto-Off independente
 
 ---
 
@@ -450,6 +498,14 @@ O **Porteiro** é uma ferramenta de segurança legítima desenvolvida para admin
 ---
 
 ## 🔥 FAQ
+
+### Como vejo quem está com acesso no momento?
+
+Use `sudo porteiro-list`. Ele lê o `porteiro_ips.conf` e cruza com o log para mostrar cada IP ativo com data e hora de abertura.
+
+### Posso revogar um admin sem fechar o acesso dos outros?
+
+Sim. `sudo porteiro-revoke 189.x.x.x` remove apenas a linha daquele IP no `porteiro_ips.conf`, valida com `nginx -t` e recarrega. Os demais IPs continuam ativos.
 
 ### O Porteiro substitui o firewall (UFW/iptables)?
 
