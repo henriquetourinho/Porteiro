@@ -39,7 +39,7 @@ A lógica é simples:
 - **🛡️ Nginx Sempre Validado:** Antes de qualquer `reload`, o Porteiro roda `nginx -t`. Se a configuração estiver quebrada, ele avisa e aborta — nunca derruba o servidor.
 - **📊 Status em Tempo Real:** `sudo porteiro-status` mostra estado, IPs ativos, rotas protegidas e log recente — com notificação Telegram se configurado.
 - **📋 Log de Auditoria com Rotação:** Cada evento registrado em `/var/log/porteiro.log`. Logrotate configurado automaticamente — o log nunca cresce infinito em produção.
-- **📣 Notificação via Telegram:** Receba uma mensagem no celular sempre que a porta abrir, fechar ou o status for consultado. Totalmente opcional — configurado com wizard durante a instalação.
+- **📣 Notificação via Telegram:** Receba uma mensagem no celular sempre que a porta abrir, fechar, o status for consultado, um IP for revogado ou o Porteiro for desinstalado. Totalmente opcional — configurado com wizard durante a instalação.
 - **📋 Listagem de IPs Ativos:** `sudo porteiro-list` exibe todos os IPs autorizados no momento, com data e hora de abertura de cada um. Lê direto do arquivo e do log — sem banco de dados.
 - **🚫 Revogação Individual:** `sudo porteiro-revoke <IP>` remove o acesso de um IP específico sem afetar os demais. Valida formato IPv4, escapa o input antes do `sed` e registra `REVOGADO` no log.
 - **🛣️ Multi-rota:** Proteja `/phpmyadmin/`, `/adminer/`, `/wp-admin/` ou qualquer rota sensível. Um `porteiro-on` libera tudo, um `porteiro-off` bloqueia tudo. Rotas escolhidas interativamente durante a instalação.
@@ -196,7 +196,8 @@ sudo bash uninstall.sh
 
 O desinstalador também é interativo:
 - Fecha o acesso e limpa o Nginx antes de remover qualquer coisa
-- Cancela agendamentos do Auto-Off (todos os timers individuais por IP)
+- Envia notificação Telegram informando a desinstalação (se configurado)
+- Cancela agendamentos do Auto-Off (todos os timers individuais por IP, via `at -c`)
 - Remove scripts, links simbólicos e arquivos de configuração
 - Remove o logrotate em `/etc/logrotate.d/porteiro`
 - Pergunta se deseja remover o log de auditoria
@@ -391,10 +392,12 @@ A mágica do multi-rota está no arquivo `/etc/nginx/porteiro_ips.conf` — comp
 - [x] Liberação apenas para IP autenticado via SSH
 - [x] Multi-IP: vários admins simultâneos sem sobrescrever
 - [x] `^allow` ancorado — imune a match em linhas comentadas
+- [x] `flock` no append — escrita atômica, sem race condition em multi-admin simultâneo
 - [x] Timer individual por IP — Auto-Off de um admin não afeta os outros
 - [x] Jobs `at` identificados por tag `#porteiro-IP` e inspecionados via `at -c` — nunca afeta jobs externos
 - [x] Validação de formato e faixa IPv4 (0-255) antes de qualquer operação no `porteiro-revoke`
 - [x] Input escapado no `sed` — proteção contra regex injection
+- [x] `grep -F` no wizard de rotas — sem interpretação de regex em input do usuário
 - [x] Fechamento manual disponível (`porteiro-off` fecha tudo de uma vez)
 - [x] Nginx validado com `nginx -t` antes de qualquer reload
 - [x] Verificação de Nginx instalado no início da instalação
@@ -409,7 +412,8 @@ A mágica do multi-rota está no arquivo `/etc/nginx/porteiro_ips.conf` — comp
 - [x] `porteiro-status` com estado e rotas em tempo real
 - [x] `porteiro-list` lista IPs ativos com data de abertura
 - [x] `porteiro-revoke` revoga IP individual com registro em log
-- [x] Notificação Telegram no `porteiro-on`, `porteiro-off`, `porteiro-revoke` e `porteiro-status` (opcional)
+- [x] Notificação Telegram em todos os eventos: `porteiro-on`, `porteiro-off`, `porteiro-revoke`, `porteiro-status` e desinstalação (opcional)
+- [x] Escape MarkdownV2 correto via `sed` encadeado — IPs, timestamps e parênteses escapados corretamente
 
 ### Leveza ✅
 - [x] Zero dependências npm/pip/gem

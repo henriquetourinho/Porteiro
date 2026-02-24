@@ -114,7 +114,7 @@ for OPCAO in $OPCOES_ROTAS; do
             ;;
     esac
 
-    if echo "$ROTAS" | grep -q "$NOVA_ROTA"; then
+    if echo "$ROTAS" | grep -Fq "$NOVA_ROTA"; then
         echo "   ⚠️  '$NOVA_ROTA' já está na lista."
     else
         ROTAS=$(echo "$ROTAS $NOVA_ROTA" | xargs)
@@ -281,7 +281,8 @@ LOG_FILE="/var/log/porteiro.log"
 source "$CONFIG_FILE"
 
 # --- Detecta o IP da sessão SSH ---
-MEU_IP="${SSH_CLIENT%% *}"
+MEU_IP="${SSH_CLIENT:-}"
+MEU_IP="${MEU_IP%% *}"
 
 # Fallback: tmux, screen, sudo su, jump hosts
 if [ -z "$MEU_IP" ]; then
@@ -334,7 +335,8 @@ fi
 
 # --- Injeta o IP no arquivo compartilhado do Nginx (multi-IP) ---
 # Adiciona o IP apenas se ainda não estiver na lista
-grep -q "^allow $MEU_IP;" "$NGINX_CONF" 2>/dev/null || echo "allow $MEU_IP;" >> "$NGINX_CONF"
+grep -q "^allow $MEU_IP;" "$NGINX_CONF" 2>/dev/null || \
+    flock "$NGINX_CONF" -c "echo 'allow $MEU_IP;' >> '$NGINX_CONF'"
 
 # --- Valida a config do Nginx antes de recarregar ---
 if nginx -t 2>/dev/null; then
@@ -362,8 +364,25 @@ echo "[$TIMESTAMP] ABERTO  | IP: $MEU_IP | Duração: $TEMPO_LABEL | Rotas: $ROT
 
 # --- Notificação Telegram (opcional) ---
 if [ -n "$TELEGRAM_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
-    # Escapa caracteres especiais para MarkdownV2
-    escape_md2() { echo "$1" | sed 's/[_*[\]()~`>#+=|{}.!-]/\\&/g'; }
+    # Escapa caracteres especiais para MarkdownV2 (sed encadeado — mais portátil)
+    escape_md2() {
+        echo "$1" | sed \
+            -e 's/\\/\\\\/g' \
+            -e 's/\./\\./g'  \
+            -e 's/-/\\-/g'   \
+            -e 's/(/\\(/g'   \
+            -e 's/)/\\)/g'   \
+            -e 's/!/\\!/g'   \
+            -e 's/|/\\|/g'   \
+            -e 's/{/\\{/g'   \
+            -e 's/}/\\}/g'   \
+            -e 's/+/\\+/g'   \
+            -e 's/=/\\=/g'   \
+            -e 's/~/\\~/g'   \
+            -e 's/>/\\>/g'   \
+            -e 's/#/\\#/g'   \
+            -e 's/_/\\_/g'
+    }
     HOSTNAME_ESC=$(escape_md2 "$HOSTNAME")
     MEU_IP_ESC=$(escape_md2 "$MEU_IP")
     TEMPO_LABEL_ESC=$(escape_md2 "$TEMPO_LABEL")
@@ -430,7 +449,24 @@ echo "[$TIMESTAMP] FECHADO | Rotas: $ROTAS_LOG | Host: $HOSTNAME" >> "$LOG_FILE"
 
 # --- Notificação Telegram (opcional) ---
 if [ -n "$TELEGRAM_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
-    escape_md2() { echo "$1" | sed 's/[_*[\]()~`>#+=|{}.!-]/\\&/g'; }
+    escape_md2() {
+        echo "$1" | sed \
+            -e 's/\\/\\\\/g' \
+            -e 's/\./\\./g'  \
+            -e 's/-/\\-/g'   \
+            -e 's/(/\\(/g'   \
+            -e 's/)/\\)/g'   \
+            -e 's/!/\\!/g'   \
+            -e 's/|/\\|/g'   \
+            -e 's/{/\\{/g'   \
+            -e 's/}/\\}/g'   \
+            -e 's/+/\\+/g'   \
+            -e 's/=/\\=/g'   \
+            -e 's/~/\\~/g'   \
+            -e 's/>/\\>/g'   \
+            -e 's/#/\\#/g'   \
+            -e 's/_/\\_/g'
+    }
     HOSTNAME_ESC=$(escape_md2 "$HOSTNAME")
     TIMESTAMP_ESC=$(escape_md2 "$TIMESTAMP")
     ROTAS_MSG=$(echo "$ROTAS" | tr ' ' '\n' | sed 's/^/  •  /' | while read -r l; do escape_md2 "$l"; done | tr '\n' '%0A')
@@ -507,11 +543,28 @@ echo ""
 if [ -n "$TELEGRAM_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
     TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
     HOSTNAME=$(hostname)
-    escape_md2() { echo "$1" | sed 's/[_*[\]()~`>#+=|{}.!-]/\\&/g'; }
+    escape_md2() {
+        echo "$1" | sed \
+            -e 's/\\/\\\\/g' \
+            -e 's/\./\\./g'  \
+            -e 's/-/\\-/g'   \
+            -e 's/(/\\(/g'   \
+            -e 's/)/\\)/g'   \
+            -e 's/!/\\!/g'   \
+            -e 's/|/\\|/g'   \
+            -e 's/{/\\{/g'   \
+            -e 's/}/\\}/g'   \
+            -e 's/+/\\+/g'   \
+            -e 's/=/\\=/g'   \
+            -e 's/~/\\~/g'   \
+            -e 's/>/\\>/g'   \
+            -e 's/#/\\#/g'   \
+            -e 's/_/\\_/g'
+    }
     HOSTNAME_ESC=$(escape_md2 "$HOSTNAME")
     TIMESTAMP_ESC=$(escape_md2 "$TIMESTAMP")
     if [ -n "$IP_ATUAL" ]; then
-        IPS_ESC=$(echo "$IP_ATUAL" | while read -r l; do escape_md2 "$l"; done | sed 's/^/`/' | sed 's/$/'"\`"'/' | tr '\n' ' ')
+        IPS_ESC=$(echo "$IP_ATUAL" | tr ',' '\n' | while read -r l; do escape_md2 "$l"; done | sed 's/^/`/' | sed 's/$/`/' | tr '\n' ' ')
         ESTADO="🟢 ABERTO | IPs: ${IPS_ESC}"
     else
         ESTADO="🔴 FECHADO"
@@ -645,7 +698,24 @@ echo "[$TIMESTAMP] REVOGADO | IP: $IP_ALVO | Rotas: $ROTAS_LOG | Host: $HOSTNAME
 
 # Notificação Telegram (opcional)
 if [ -n "$TELEGRAM_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
-    escape_md2() { echo "$1" | sed 's/[_*[\]()~`>#+=|{}.!-]/\\&/g'; }
+    escape_md2() {
+        echo "$1" | sed \
+            -e 's/\\/\\\\/g' \
+            -e 's/\./\\./g'  \
+            -e 's/-/\\-/g'   \
+            -e 's/(/\\(/g'   \
+            -e 's/)/\\)/g'   \
+            -e 's/!/\\!/g'   \
+            -e 's/|/\\|/g'   \
+            -e 's/{/\\{/g'   \
+            -e 's/}/\\}/g'   \
+            -e 's/+/\\+/g'   \
+            -e 's/=/\\=/g'   \
+            -e 's/~/\\~/g'   \
+            -e 's/>/\\>/g'   \
+            -e 's/#/\\#/g'   \
+            -e 's/_/\\_/g'
+    }
     HOSTNAME_ESC=$(escape_md2 "$HOSTNAME")
     IP_ALVO_ESC=$(escape_md2 "$IP_ALVO")
     TIMESTAMP_ESC=$(escape_md2 "$TIMESTAMP")

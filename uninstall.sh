@@ -51,6 +51,37 @@ else
     echo "   Arquivo $NGINX_CONF não encontrado. Pulando."
 fi
 
+# --- Notificação Telegram (desinstalação) ---
+if [ -n "${TELEGRAM_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
+    escape_md2() {
+        echo "$1" | sed \
+            -e 's/\\/\\\\/g' \
+            -e 's/\./\\./g'  \
+            -e 's/-/\\-/g'   \
+            -e 's/(/\\(/g'   \
+            -e 's/)/\\)/g'   \
+            -e 's/!/\\!/g'   \
+            -e 's/|/\\|/g'   \
+            -e 's/{/\\{/g'   \
+            -e 's/}/\\}/g'   \
+            -e 's/+/\\+/g'   \
+            -e 's/=/\\=/g'   \
+            -e 's/~/\\~/g'   \
+            -e 's/>/\\>/g'   \
+            -e 's/#/\\#/g'   \
+            -e 's/_/\\_/g'
+    }
+    TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+    HOSTNAME_ESC=$(escape_md2 "$(hostname)")
+    TIMESTAMP_ESC=$(escape_md2 "$TIMESTAMP")
+    ROTAS_MSG=$(echo "$ROTAS" | tr ' ' '\n' | sed 's/^/  •  /' | while read -r l; do escape_md2 "$l"; done | tr '\n' '%0A')
+    MENSAGEM="🗑️ *Porteiro — Desinstalado*%0A%0A🖥 Host: ${HOSTNAME_ESC}%0A🛣 Rotas liberadas:%0A${ROTAS_MSG}%0A🕐 Horário: ${TIMESTAMP_ESC}"
+    curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+        -d "chat_id=${TELEGRAM_CHAT_ID}" \
+        -d "text=${MENSAGEM}" \
+        -d "parse_mode=MarkdownV2" > /dev/null 2>&1
+fi
+
 # --- 2. Cancelar todos os agendamentos do Porteiro (timers individuais por IP) ---
 echo "⏱️  Cancelando agendamentos do Auto-Off..."
 atq 2>/dev/null | while read -r JOB; do
